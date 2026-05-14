@@ -445,24 +445,24 @@ const STRICT_GENRE_QUERY_POOLS = {
 
 const AURA_NAME_WORDS = {
   grungeNoir: {
-    left: ["Ghost", "Obsidian", "Black", "Static", "Noir", "Ash", "Midnight", "Velvet", "Shadow", "Chrome", "Grave", "Smoke", "Vanta", "Feral", "Hollow", "Raven"],
-    right: ["Frequency", "Echo", "Drift", "Signal", "Bloom", "Pressure", "Theory", "Mirage", "Pulse", "Haze", "Ritual", "Current", "Weather", "Halo", "Afterimage", "Static"]
+    left: ["Ghost", "Obsidian", "Black", "Static", "Noir", "Ash", "Midnight", "Velvet", "Shadow", "Chrome", "Grave", "Smoke", "Vanta", "Feral", "Hollow", "Raven", "Crypt", "Phantom", "Tar", "Onyx", "Eclipse", "Wraith", "Bruise", "Ink", "Cathedral", "Basement", "Dagger", "Moth", "Lowlight", "Charcoal", "Nightmare", "Cinder"],
+    right: ["Frequency", "Echo", "Drift", "Signal", "Bloom", "Pressure", "Theory", "Mirage", "Pulse", "Haze", "Ritual", "Current", "Weather", "Halo", "Afterimage", "Static", "Cinema", "Orbit", "Undertow", "Lullaby", "Memory", "Artifact", "Silhouette", "Syndrome", "Wavelength", "Monolith", "Vapor", "Corridor", "Field", "Language", "Gravity", "Whisper"]
   },
   neonNightlife: {
-    left: ["Neon", "Electric", "Infrared", "Digital", "Afterhours", "Laser", "Chrome", "Ultraviolet", "Signal", "City", "Cyber", "Plasma", "Vapor", "Prism", "Blue", "Motion"],
-    right: ["Rush", "Mirage", "Pulse", "Drift", "Bloom", "Velocity", "Horizon", "Aura", "Signal", "Current", "Flare", "Weather", "Glow", "Circuit", "Flash", "Dream"]
+    left: ["Neon", "Electric", "Infrared", "Digital", "Afterhours", "Laser", "Chrome", "Ultraviolet", "Signal", "City", "Cyber", "Plasma", "Vapor", "Prism", "Blue", "Motion", "Strobe", "Pixel", "Arcade", "Violet", "Turbo", "Metro", "Hologram", "Photon", "Glass", "Pulse", "Circuit", "Nightclub", "Flash", "Velocity", "Spectrum", "Voltage"],
+    right: ["Rush", "Mirage", "Pulse", "Drift", "Bloom", "Velocity", "Horizon", "Aura", "Signal", "Current", "Flare", "Weather", "Glow", "Circuit", "Flash", "Dream", "Transmission", "Highway", "Engine", "Afterglow", "Portal", "Skyline", "Radar", "Overdrive", "Frequency", "Sequence", "Orbit", "Comet", "Spark", "Reflection", "Nightfall", "Surge"]
   },
   warmDreamscape: {
-    left: ["Golden", "Velvet", "Rose", "Honey", "Solar", "Soft", "Blush", "Amber", "Summer", "Lunar", "Peach", "Halo", "Dream", "Afterlight", "Warm", "Memory"],
-    right: ["Reverie", "Bloom", "Gravity", "Haze", "Mirage", "Glow", "Drift", "Weather", "Pulse", "Garden", "Echo", "Aura", "Daydream", "Signal", "Mist", "Field"]
+    left: ["Golden", "Velvet", "Rose", "Honey", "Solar", "Soft", "Blush", "Amber", "Summer", "Lunar", "Peach", "Halo", "Dream", "Afterlight", "Warm", "Memory", "Apricot", "Sunset", "Dove", "Satin", "Candle", "Meadow", "Pearl", "Sunday", "Lavender", "Honeydew", "Cotton", "Daylight", "Petal", "Glow", "Pastel", "Tender"],
+    right: ["Reverie", "Bloom", "Gravity", "Haze", "Mirage", "Glow", "Drift", "Weather", "Pulse", "Garden", "Echo", "Aura", "Daydream", "Signal", "Mist", "Field", "Window", "Summer", "Archive", "Letter", "Horizon", "Afterglow", "Tide", "Memory", "Language", "Orbit", "Fever", "Serenade", "Room", "Whisper", "Light", "Song"]
   },
   editorialLuxury: {
-    left: ["Silver", "Mirror", "Ivory", "Rare", "Chrome", "Velvet", "Pearl", "Glass", "Quiet", "Monochrome", "Platinum", "Editorial", "Satin", "Marble", "Crystal", "Luxe"],
-    right: ["Theory", "Aura", "Drift", "Motion", "Reverie", "Silence", "Bloom", "Frame", "Signal", "Composition", "Halo", "Muse", "Archive", "Pressure", "Poise", "Reflection"]
+    left: ["Silver", "Mirror", "Ivory", "Rare", "Chrome", "Velvet", "Pearl", "Glass", "Quiet", "Monochrome", "Platinum", "Editorial", "Satin", "Marble", "Crystal", "Luxe", "Runway", "Atelier", "Gallery", "Caviar", "Diamond", "Noir", "Minimal", "Silk", "Opal", "Studio", "Polished", "Velour", "Carbon", "Muse", "Archive", "Sterling"],
+    right: ["Theory", "Aura", "Drift", "Motion", "Reverie", "Silence", "Bloom", "Frame", "Signal", "Composition", "Halo", "Muse", "Archive", "Pressure", "Poise", "Reflection", "Editorial", "Index", "Portrait", "Monument", "Gesture", "Surface", "Room", "Exposure", "Negative", "Study", "Angle", "House", "Stillness", "Formula", "Suite", "Afterimage"]
   },
   stormPressure: {
-    left: ["Storm", "Cobalt", "Blue", "Static", "Lowlight", "Cold", "Thunder", "Mercury", "Steel", "Rain", "Magnetic", "Tidal", "Grey", "Voltage", "Night", "Pressure"],
-    right: ["Horizon", "Echo", "Voltage", "Theory", "Signal", "Field", "Current", "Weather", "Mirage", "Pulse", "Drift", "Weight", "Aura", "Bloom", "Static", "Focus"]
+    left: ["Storm", "Cobalt", "Blue", "Static", "Lowlight", "Cold", "Thunder", "Mercury", "Steel", "Rain", "Magnetic", "Tidal", "Grey", "Voltage", "Night", "Pressure", "Arctic", "Flood", "Iron", "Cloud", "Tempest", "Concrete", "Slate", "Wave", "Distant", "Heavy", "Mineral", "North", "Fog", "Current", "Polar", "Ion"],
+    right: ["Horizon", "Echo", "Voltage", "Theory", "Signal", "Field", "Current", "Weather", "Mirage", "Pulse", "Drift", "Weight", "Aura", "Bloom", "Static", "Focus", "Front", "Pressure", "Depth", "Undertow", "System", "Signal", "Forecast", "Gravity", "Tension", "Rainfall", "Transmission", "Crown", "Wake", "Engine", "Trace", "Surge"]
   }
 };
 
@@ -478,7 +478,7 @@ function getRecentAuraNames(limit = 24) {
 function generateAuraName(auraKey = "grungeNoir", imageBrain = null) {
   const bank = AURA_NAME_WORDS[auraKey] || AURA_NAME_WORDS.grungeNoir;
   const recent = getRecentAuraNames(30);
-  const moodWords = [imageBrain?.energyLabel, imageBrain?.textureLabel, imageBrain?.temperatureLabel, imageBrain?.lightLabel]
+  const moodWords = [imageBrain?.energyLabel, imageBrain?.textureLabel, imageBrain?.temperatureLabel, imageBrain?.lightLabel, imageBrain?.compositionLabel, imageBrain?.paceLabel]
     .filter(Boolean)
     .map((word) => String(word).split(/\s+/)[0])
     .filter((word) => word.length > 2);
@@ -493,7 +493,7 @@ function generateAuraName(auraKey = "grungeNoir", imageBrain = null) {
     }
   }
 
-  return `${randomItem(bank.left)} ${randomItem(bank.right)}`;
+  return `${randomItem(bank.left)} ${randomItem(bank.right)} ${Math.floor(10 + Math.random() * 89)}`;
 }
 
 
@@ -763,6 +763,9 @@ function discoveryQueriesForAura(auraKey, genreSettings = DEFAULT_GENRE_SETTINGS
     imageBrain?.lightLabel,
     imageBrain?.textureLabel,
     imageBrain?.temperatureLabel,
+    imageBrain?.compositionLabel,
+    imageBrain?.paceLabel,
+    ...(Array.isArray(imageBrain?.searchTerms) ? imageBrain.searchTerms : []),
     "moody",
     "night drive",
     "atmospheric"
@@ -1101,14 +1104,21 @@ function describeVisualBrain(stats = {}) {
   const contrast = stats.contrast || 0;
   const warmth = stats.warmth || 0;
   const colorSpread = stats.colorSpread || 0;
+  const edgeIntensity = stats.edgeIntensity || 0;
 
-  const energyLabel = saturation > 68 || colorSpread > 92 ? "high energy" : contrast > 52 ? "intense" : brightness > 130 ? "open" : "low tempo";
-  const lightLabel = brightness < 74 ? "low light" : brightness > 145 ? "bright light" : "soft light";
-  const textureLabel = contrast > 58 ? "sharp texture" : saturation < 32 ? "minimal texture" : "smooth texture";
+  const energyLabel = saturation > 70 || colorSpread > 96 ? "high energy" : contrast > 56 || edgeIntensity > 44 ? "intense" : brightness > 132 ? "open" : "low tempo";
+  const lightLabel = brightness < 74 ? "low light" : brightness > 148 ? "bright light" : "soft light";
+  const textureLabel = edgeIntensity > 52 ? "grainy texture" : contrast > 58 ? "sharp texture" : saturation < 32 ? "minimal texture" : "smooth texture";
   const temperatureLabel = warmth > 30 ? "warm" : warmth < -12 ? "cool" : "neutral";
-  const confidence = Math.min(98, Math.max(62, Math.round(58 + Math.abs(warmth) * 0.22 + saturation * 0.22 + contrast * 0.18 + colorSpread * 0.08)));
+  const compositionLabel = contrast > 62 && brightness < 110 ? "dramatic composition" : saturation > 64 ? "color-forward composition" : brightness > 145 ? "airy composition" : "cinematic composition";
+  const paceLabel = energyLabel === "high energy" ? "fast pulse" : energyLabel === "intense" ? "heavy pulse" : brightness > 132 ? "floating pulse" : "slow pulse";
+  const toneSignature = `${temperatureLabel} ${textureLabel} ${paceLabel}`;
+  const searchTerms = [energyLabel, lightLabel, textureLabel, temperatureLabel, compositionLabel, paceLabel]
+    .filter(Boolean)
+    .map((value) => String(value).replace(/\s+/g, " ").trim());
+  const confidence = Math.min(99, Math.max(66, Math.round(59 + Math.abs(warmth) * 0.2 + saturation * 0.22 + contrast * 0.18 + colorSpread * 0.08 + edgeIntensity * 0.12)));
 
-  return { energyLabel, lightLabel, textureLabel, temperatureLabel, confidence };
+  return { energyLabel, lightLabel, textureLabel, temperatureLabel, compositionLabel, paceLabel, toneSignature, searchTerms, edgeIntensity, confidence };
 }
 
 function buildAuraInsight(imageBrain = {}, song = "this song") {
@@ -1117,9 +1127,11 @@ function buildAuraInsight(imageBrain = {}, song = "this song") {
   const light = imageBrain?.lightLabel || "soft light";
   const texture = imageBrain?.textureLabel || "visual texture";
   const temp = imageBrain?.temperatureLabel || "balanced";
+  const composition = imageBrain?.compositionLabel || "cinematic composition";
+  const pace = imageBrain?.paceLabel || "slow pulse";
   const confidence = imageBrain?.confidence || 78;
 
-  return `Aura read this as ${profile.mood}: ${light}, ${temp} color temperature, ${texture}, and ${energy} motion. That is why it matched ${song} — the track carries a similar emotional rhythm and visual pressure. Reading confidence: ${confidence}%.`;
+  return `Aura read this as ${profile.mood}: ${light}, ${temp} color temperature, ${texture}, ${composition}, and a ${pace}. That is why it matched ${song} — the track carries a similar emotional rhythm, visual pressure, and movement signature. Reading confidence: ${confidence}%.`;
 }
 
 function extractImageMood(imageSrc) {
@@ -1136,7 +1148,7 @@ function extractImageMood(imageSrc) {
       ctx.drawImage(img, 0, 0, size, size);
 
       const pixels = ctx.getImageData(0, 0, size, size).data;
-      let r = 0, g = 0, b = 0, count = 0, saturationTotal = 0, brightnessTotal = 0, brightnessSquared = 0;
+      let r = 0, g = 0, b = 0, count = 0, saturationTotal = 0, brightnessTotal = 0, brightnessSquared = 0, edgeTotal = 0, edgeCount = 0, lastBrightness = null;
       const colorful = [];
 
       for (let i = 0; i < pixels.length; i += 16) {
@@ -1154,6 +1166,11 @@ function extractImageMood(imageSrc) {
         saturationTotal += saturation;
         brightnessTotal += brightness;
         brightnessSquared += brightness * brightness;
+        if (lastBrightness !== null) {
+          edgeTotal += Math.abs(brightness - lastBrightness);
+          edgeCount += 1;
+        }
+        lastBrightness = brightness;
         count += 1;
 
         if (saturation > 28 && brightness > 45) {
@@ -1170,6 +1187,7 @@ function extractImageMood(imageSrc) {
       const meanBrightness = brightnessTotal / count;
       const contrast = Math.sqrt(Math.max(0, brightnessSquared / count - meanBrightness * meanBrightness));
       const colorSpread = Math.max(red, green, blue) - Math.min(red, green, blue);
+      const edgeIntensity = edgeCount ? edgeTotal / edgeCount : 0;
 
       colorful.sort((a, b) => (b[3] + b[4] * 0.22) - (a[3] + a[4] * 0.22));
 
@@ -1184,12 +1202,12 @@ function extractImageMood(imageSrc) {
       ];
 
       const auraKey = pickAuraFromColors({ brightness, warmth, saturation, contrast, red, green, blue, colorSpread });
-      const visualBrain = describeVisualBrain({ brightness, warmth, saturation, contrast, red, green, blue, colorSpread });
+      const visualBrain = describeVisualBrain({ brightness, warmth, saturation, contrast, red, green, blue, colorSpread, edgeIntensity });
 
       resolve({
         auraKey,
         colors,
-        visualBrain: { ...visualBrain, brightness, warmth, saturation, contrast, colorSpread }
+        visualBrain: { ...visualBrain, brightness, warmth, saturation, contrast, colorSpread, edgeIntensity }
       });
     };
 
@@ -1362,11 +1380,11 @@ function scanVideoMood(video) {
   const c3 = colorful[Math.floor(colorful.length * 0.7)] || [green, blue, red];
 
   const auraKey = pickAuraFromColors({ brightness, warmth, saturation, contrast, red, green, blue, colorSpread });
-  const visualBrain = describeVisualBrain({ brightness, warmth, saturation, contrast, red, green, blue, colorSpread });
+  const visualBrain = describeVisualBrain({ brightness, warmth, saturation, contrast, red, green, blue, colorSpread, edgeIntensity });
 
   return {
     auraKey,
-    visualBrain: { ...visualBrain, brightness, warmth, saturation, contrast, colorSpread },
+    visualBrain: { ...visualBrain, brightness, warmth, saturation, contrast, colorSpread, edgeIntensity },
     colors: [
       rgbToHex(c1[0] * 1.14, c1[1] * 1.14, c1[2] * 1.14),
       rgbToHex(c2[0] * 1.22, c2[1] * 1.22, c2[2] * 1.22),
@@ -2030,6 +2048,7 @@ export default function App() {
   const audioUnlockedRef = useRef(false);
   const revealTimerRef = useRef(null);
   const finalRevealTimerRef = useRef(null);
+  const installPromptRef = useRef(null);
 
   const [image, setImage] = useState(null);
   const [fileName, setFileName] = useState("");
@@ -2051,6 +2070,7 @@ export default function App() {
   });
   const [liveCapturing, setLiveCapturing] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [installReady, setInstallReady] = useState(false);
   const [genreSettings, setGenreSettings] = useState(() => {
     try {
       return normalizeGenreSettings(JSON.parse(safeLocalStorageGet("aura_genre_settings", "null") || "null"));
@@ -2078,6 +2098,18 @@ export default function App() {
 
   const enabledGenresCount = GENRE_OPTIONS.filter((genre) => genreSettings[genre.key]).length;
 
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    let themeMeta = document.querySelector("meta[name='theme-color']");
+    if (!themeMeta) {
+      themeMeta = document.createElement("meta");
+      themeMeta.setAttribute("name", "theme-color");
+      document.head.appendChild(themeMeta);
+    }
+    themeMeta.setAttribute("content", readableAccent(colors[1] || "07080a"));
+  }, [colors]);
+
   useEffect(() => {
     safeLocalStorageSet("aura_genre_settings", JSON.stringify(genreSettings));
   }, [genreSettings]);
@@ -2087,6 +2119,37 @@ export default function App() {
       const next = normalizeGenreSettings({ ...prev, [key]: !prev[key] });
       return next;
     });
+  }
+
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (event) => {
+      event.preventDefault();
+      installPromptRef.current = event;
+      setInstallReady(true);
+    };
+
+    const handleInstalled = () => {
+      installPromptRef.current = null;
+      setInstallReady(false);
+    };
+
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    window.addEventListener("appinstalled", handleInstalled);
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", handleInstalled);
+    };
+  }, []);
+
+  async function installAuraApp() {
+    const prompt = installPromptRef.current;
+    if (!prompt) return;
+    prompt.prompt();
+    await prompt.userChoice.catch(() => null);
+    installPromptRef.current = null;
+    setInstallReady(false);
   }
 
 
@@ -2720,6 +2783,15 @@ const entry = {
                 })}
               </div>
 
+              {installReady && (
+                <button
+                  onClick={installAuraApp}
+                  className="ios-glass mt-4 flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-black text-white/78 transition active:scale-[0.985]"
+                >
+                  Install Aura as app
+                </button>
+              )}
+
               <div className="mt-4 grid grid-cols-2 gap-3">
                 <button
                   onClick={() => setGenreSettings({ ...DEFAULT_GENRE_SETTINGS })}
@@ -3134,7 +3206,7 @@ const entry = {
                   <h2 className={`aura-result-title aura-type-glow mt-1 text-4xl ${auraTypographyClass(result.auraKey)}`}>{result.aura}</h2>
                   <p className="mt-2 text-sm text-white/58">{result.mood}</p>
                   {result.visualBrain?.confidence && (
-                    <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-center sm:grid-cols-5">
                       <div className="rounded-2xl bg-white/[0.05] px-2 py-2">
                         <p className="text-[9px] uppercase tracking-[0.2em] text-white/28">energy</p>
                         <p className="mt-1 truncate text-xs font-semibold text-white/68">{result.visualBrain.energyLabel}</p>
@@ -3142,6 +3214,14 @@ const entry = {
                       <div className="rounded-2xl bg-white/[0.05] px-2 py-2">
                         <p className="text-[9px] uppercase tracking-[0.2em] text-white/28">light</p>
                         <p className="mt-1 truncate text-xs font-semibold text-white/68">{result.visualBrain.lightLabel}</p>
+                      </div>
+                      <div className="rounded-2xl bg-white/[0.05] px-2 py-2">
+                        <p className="text-[9px] uppercase tracking-[0.2em] text-white/28">texture</p>
+                        <p className="mt-1 truncate text-xs font-semibold text-white/68">{result.visualBrain.textureLabel}</p>
+                      </div>
+                      <div className="rounded-2xl bg-white/[0.05] px-2 py-2">
+                        <p className="text-[9px] uppercase tracking-[0.2em] text-white/28">motion</p>
+                        <p className="mt-1 truncate text-xs font-semibold text-white/68">{result.visualBrain.paceLabel}</p>
                       </div>
                       <div className="rounded-2xl bg-white/[0.05] px-2 py-2">
                         <p className="text-[9px] uppercase tracking-[0.2em] text-white/28">read</p>

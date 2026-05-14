@@ -404,17 +404,97 @@ const GENRE_OPTIONS = [
   { key: "cinematic", label: "Cinematic", terms: ["cinematic", "atmospheric", "night drive", "moody soundtrack"] }
 ];
 
+const GENRE_MATCHERS = {
+  rbSoul: ["r&b", "rnb", "soul", "neo soul", "quiet storm", "funk", "motown"],
+  rapHipHop: ["hip-hop", "hip hop", "rap", "trap", "drill", "cloud rap", "melodic rap"],
+  indieAlt: ["indie", "alternative", "bedroom pop", "shoegaze", "lo-fi", "lofi"],
+  electronic: ["electronic", "electronica", "dance", "edm", "house", "techno", "synth", "synthwave", "darkwave", "ambient"],
+  pop: ["pop", "hyperpop", "dream pop", "alt pop"],
+  rock: ["rock", "punk", "grunge", "metal", "guitar", "post-punk", "post punk"],
+  cinematic: ["soundtrack", "score", "cinematic", "orchestral", "movie", "film", "instrumental", "atmospheric"]
+};
+
+const SONG_GENRE_KEYS = {
+  "after dark::mr.kitty": ["electronic"],
+  "be quiet and drive far away::deftones": ["rock"],
+  "slow dancing in the dark::joji": ["pop", "indieAlt"],
+  "space song::beach house": ["indieAlt", "pop"],
+  "k::cigarettes after sex": ["indieAlt"],
+  "after hours::the weeknd": ["pop", "rbSoul"],
+  "no pole::don toliver": ["rapHipHop", "rbSoul"],
+  "nightcrawler::travis scott": ["rapHipHop"],
+  "sky::playboi carti": ["rapHipHop"],
+  "midnight city::m83": ["electronic", "pop"],
+  "pink white::frank ocean": ["rbSoul"],
+  "bad habit::steve lacy": ["rbSoul", "indieAlt"],
+  "get you::daniel caesar": ["rbSoul"],
+  "japanese denim::daniel caesar": ["rbSoul"],
+  "snooze::sza": ["rbSoul"],
+  "nights::frank ocean": ["rbSoul"],
+  "gravity::brent faiyaz": ["rbSoul"],
+  "escapism::070 shake": ["pop", "electronic"],
+  "cellophane::fka twigs": ["pop", "electronic"],
+  "retrograde::james blake": ["electronic", "rbSoul"],
+  "90210::travis scott": ["rapHipHop"],
+  "adhd::kendrick lamar": ["rapHipHop"],
+  "resonance::home": ["electronic"],
+  "lvl::a$ap rocky": ["rapHipHop"],
+  "ghost town::kanye west": ["rapHipHop", "pop"]
+};
+
 function normalizeGenreSettings(value = {}) {
   const merged = { ...DEFAULT_GENRE_SETTINGS, ...(value || {}) };
   const hasEnabled = Object.values(merged).some(Boolean);
   return hasEnabled ? merged : { ...DEFAULT_GENRE_SETTINGS };
 }
 
+function enabledGenreKeys(settings = DEFAULT_GENRE_SETTINGS) {
+  const safeSettings = normalizeGenreSettings(settings);
+  return GENRE_OPTIONS.filter((genre) => safeSettings[genre.key]).map((genre) => genre.key);
+}
+
 function enabledGenreTerms(settings = DEFAULT_GENRE_SETTINGS) {
   const safeSettings = normalizeGenreSettings(settings);
   return GENRE_OPTIONS
     .filter((genre) => safeSettings[genre.key])
-    .flatMap((genre) => genre.terms);
+    .flatMap((genre) => genre.terms.map((term) => ({ term, key: genre.key })));
+}
+
+function compactGenreText(value = "") {
+  return cleanQuery(String(value)).toLowerCase().replace(/[-_]+/g, " ");
+}
+
+function genreKeysFromText(value = "") {
+  const text = compactGenreText(value);
+  if (!text) return [];
+
+  return Object.entries(GENRE_MATCHERS)
+    .filter(([, matchers]) => matchers.some((matcher) => text.includes(matcher)))
+    .map(([key]) => key);
+}
+
+function trackGenreKeys(song = "", artist = "", metadata = {}) {
+  const knownKey = normalizeTrackKey(song, artist).replace(/[().]/g, "").replace(/\s+/g, " ");
+  const known = SONG_GENRE_KEYS[knownKey] || SONG_GENRE_KEYS[normalizeTrackKey(song, artist)];
+  const directKeys = [metadata.searchGenreKey, metadata.genreKey].filter((key) => GENRE_MATCHERS[key]);
+  const metadataText = [
+    metadata.primaryGenreName,
+    metadata.collectionName,
+    metadata.albumTitle,
+    ...(Array.isArray(metadata.genres) ? metadata.genres : [])
+  ].filter(Boolean).join(" ");
+
+  return [...new Set([...(known || []), ...directKeys, ...genreKeysFromText(metadataText)])];
+}
+
+function genreAllowedForSettings(keys = [], settings = DEFAULT_GENRE_SETTINGS, strictUnknown = false) {
+  const enabled = new Set(enabledGenreKeys(settings));
+  if (!keys.length) return !strictUnknown;
+  return keys.some((key) => enabled.has(key));
+}
+
+function isTrackAllowedByGenre(song = "", artist = "", metadata = {}, settings = DEFAULT_GENRE_SETTINGS, strictUnknown = false) {
+  return genreAllowedForSettings(trackGenreKeys(song, artist, metadata), settings, strictUnknown);
 }
 
 const AURA_DISCOVERY = {
@@ -514,7 +594,9 @@ function normalizeDiscoveryTrack(track = {}) {
     albumArt: track.albumArt || "",
     previewUrl: track.previewUrl || "",
     appleMusicUrl: track.appleMusicUrl || "",
-    collectionName: track.collectionName || ""
+    collectionName: track.collectionName || "",
+    genreKey: track.genreKey || "",
+    primaryGenreName: track.primaryGenreName || ""
   };
 }
 
@@ -558,31 +640,46 @@ function discoveryQueriesForAura(auraKey, genreSettings = DEFAULT_GENRE_SETTINGS
   ].filter(Boolean);
 
   const expanded = pool.queries.flatMap((query) => {
-    const genre = randomItem(genreTerms) || "atmospheric";
+    const genrePick = randomItem(genreTerms) || { term: "atmospheric", key: "cinematic" };
+    const genre = genrePick.term;
     const booster = randomItem(broadBoosters);
     const smartTerm = randomItem(intelligenceTerms) || "moody";
     return [
-      `${query} ${genre}`,
-      `${query} ${genre} ${booster}`,
-      `${smartTerm} ${genre} ${query}`,
-      `${booster} ${smartTerm} ${genre}`
+      { text: `${genre} ${smartTerm} music`, genreKey: genrePick.key },
+      { text: `${query} ${genre}`, genreKey: genrePick.key },
+      { text: `${query} ${genre} ${booster}`, genreKey: genrePick.key },
+      { text: `${smartTerm} ${genre} ${query}`, genreKey: genrePick.key },
+      { text: `${booster} ${smartTerm} ${genre}`, genreKey: genrePick.key }
     ];
   });
 
-  return shuffleItems([...new Set(expanded)]);
+  const seen = new Set();
+  return shuffleItems(expanded.filter((item) => {
+    const key = `${item.genreKey}::${item.text}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }));
 }
 
 async function fetchItunesDiscovery(auraKey, excludedKeys = new Set(), genreSettings = DEFAULT_GENRE_SETTINGS, imageBrain = null) {
   const queries = discoveryQueriesForAura(auraKey, genreSettings, imageBrain);
 
-  for (const rawQuery of queries) {
+  for (const queryItem of queries) {
+    const rawQuery = typeof queryItem === "string" ? queryItem : queryItem.text;
+    const searchGenreKey = typeof queryItem === "string" ? null : queryItem.genreKey;
     try {
       const query = encodeURIComponent(rawQuery);
       const url = `https://itunes.apple.com/search?term=${query}&media=music&entity=song&country=US&limit=75&_=${Date.now()}`;
       const data = await fetchJson(url);
       const results = (Array.isArray(data?.results) ? data.results : [])
         .filter((item) => item.previewUrl && item.trackName && item.artistName)
-        .filter((item) => !isExcludedTrack(item.trackName, item.artistName, excludedKeys));
+        .filter((item) => !isExcludedTrack(item.trackName, item.artistName, excludedKeys))
+        .filter((item) => isTrackAllowedByGenre(item.trackName, item.artistName, {
+          primaryGenreName: item.primaryGenreName,
+          collectionName: item.collectionName,
+          searchGenreKey
+        }, genreSettings, !!item.primaryGenreName));
 
       if (!results.length) continue;
 
@@ -596,7 +693,9 @@ async function fetchItunesDiscovery(auraKey, excludedKeys = new Set(), genreSett
         albumArt: picked.artworkUrl100?.replace("100x100bb", "600x600bb") || "",
         previewUrl,
         appleMusicUrl: picked.trackViewUrl || "",
-        collectionName: picked.collectionName || ""
+        collectionName: picked.collectionName || "",
+        genreKey: searchGenreKey,
+        primaryGenreName: picked.primaryGenreName || ""
       });
     } catch (error) {
       console.warn("iTunes discovery failed", rawQuery, error);
@@ -609,7 +708,9 @@ async function fetchItunesDiscovery(auraKey, excludedKeys = new Set(), genreSett
 async function fetchDeezerDiscovery(auraKey, excludedKeys = new Set(), genreSettings = DEFAULT_GENRE_SETTINGS, imageBrain = null) {
   const queries = discoveryQueriesForAura(auraKey, genreSettings, imageBrain);
 
-  for (const rawQuery of queries) {
+  for (const queryItem of queries) {
+    const rawQuery = typeof queryItem === "string" ? queryItem : queryItem.text;
+    const searchGenreKey = typeof queryItem === "string" ? null : queryItem.genreKey;
     const deezerUrl = `https://api.deezer.com/search?q=${encodeURIComponent(rawQuery)}&limit=75`;
     const urls = [
       `https://api.allorigins.win/raw?url=${encodeURIComponent(deezerUrl)}`,
@@ -621,7 +722,8 @@ async function fetchDeezerDiscovery(auraKey, excludedKeys = new Set(), genreSett
         const data = await fetchJson(url);
         const results = (Array.isArray(data?.data) ? data.data : [])
           .filter((item) => item.preview && item.title && item.artist?.name)
-          .filter((item) => !isExcludedTrack(item.title, item.artist?.name, excludedKeys));
+          .filter((item) => !isExcludedTrack(item.title, item.artist?.name, excludedKeys))
+          .filter((item) => genreAllowedForSettings([searchGenreKey].filter(Boolean), genreSettings, false));
 
         if (!results.length) continue;
 
@@ -635,7 +737,8 @@ async function fetchDeezerDiscovery(auraKey, excludedKeys = new Set(), genreSett
           albumArt: picked.album?.cover_big || picked.album?.cover_medium || "",
           previewUrl,
           appleMusicUrl: picked.link || "",
-          collectionName: picked.album?.title || ""
+          collectionName: picked.album?.title || "",
+          genreKey: searchGenreKey
         });
       } catch (error) {
         console.warn("Deezer discovery failed", rawQuery, error);
@@ -658,14 +761,33 @@ async function buildFreshAuraResult(auraKey, colors = ["6d5dfc", "19d8ff", "ff3d
   if (!discovered?.song || !discovered?.artist) {
     const availableIndexes = profile.songs
       .map((songPack, index) => ({ songPack, index }))
-      .filter(({ songPack }) => !isExcludedTrack(songPack[0], songPack[1], excludedKeys));
+      .filter(({ songPack }) => !isExcludedTrack(songPack[0], songPack[1], excludedKeys))
+      .filter(({ songPack }) => isTrackAllowedByGenre(songPack[0], songPack[1], {}, genreSettings, true));
     const randomSongIndex = availableIndexes.length
       ? randomItem(availableIndexes).index
       : Math.floor(Math.random() * profile.songs.length);
-    return buildResult(auraKey, randomSongIndex, safeColors, true, imageBrain);
+    return buildResult(auraKey, randomSongIndex, safeColors, true, imageBrain, genreSettings);
   }
 
   const spotifyMedia = await fetchSpotifyMedia(discovered.song, discovered.artist);
+  const discoveredMetadata = {
+    ...spotifyMedia,
+    primaryGenreName: discovered.primaryGenreName,
+    collectionName: spotifyMedia.collectionName || discovered.collectionName,
+    genreKey: discovered.genreKey
+  };
+
+  if (!isTrackAllowedByGenre(discovered.song, discovered.artist, discoveredMetadata, genreSettings, true)) {
+    const availableIndexes = profile.songs
+      .map((songPack, index) => ({ songPack, index }))
+      .filter(({ songPack }) => !isExcludedTrack(songPack[0], songPack[1], excludedKeys))
+      .filter(({ songPack }) => isTrackAllowedByGenre(songPack[0], songPack[1], {}, genreSettings, true));
+    const randomSongIndex = availableIndexes.length
+      ? randomItem(availableIndexes).index
+      : Math.floor(Math.random() * profile.songs.length);
+    return buildResult(auraKey, randomSongIndex, safeColors, true, imageBrain, genreSettings);
+  }
+
   const media = {
     ...spotifyMedia,
     ...discovered,
@@ -847,7 +969,7 @@ function extractImageMood(imageSrc) {
   });
 }
 
-async function buildResult(auraKey, songIndex = 0, colors = ["6d5dfc", "19d8ff", "ff3df2"], requirePlayable = false, imageBrain = null) {
+async function buildResult(auraKey, songIndex = 0, colors = ["6d5dfc", "19d8ff", "ff3df2"], requirePlayable = false, imageBrain = null, genreSettings = DEFAULT_GENRE_SETTINGS) {
   const profile = AURA_PROFILES[auraKey] || AURA_PROFILES.grungeNoir;
   const safeColors = colors?.length >= 3 ? colors : profile.colorFallback;
 
@@ -863,7 +985,16 @@ async function buildResult(auraKey, songIndex = 0, colors = ["6d5dfc", "19d8ff",
     const index = (songIndex + attempt) % profile.songs.length;
     const candidate = profile.songs[index];
     const [candidateSong, candidateArtist] = candidate;
+
+    if (!isTrackAllowedByGenre(candidateSong, candidateArtist, {}, genreSettings, true)) {
+      continue;
+    }
+
     const candidateMedia = await fetchSongMedia(candidateSong, candidateArtist);
+
+    if (candidateMedia?.genres?.length && !isTrackAllowedByGenre(candidateSong, candidateArtist, candidateMedia, genreSettings, true)) {
+      continue;
+    }
 
     if (candidateMedia?.previewUrl) {
       chosenIndex = index;
@@ -872,10 +1003,22 @@ async function buildResult(auraKey, songIndex = 0, colors = ["6d5dfc", "19d8ff",
       break;
     }
 
-    if (attempt === 0) {
+    if (!media.previewUrl && !media.albumArt) {
       chosenIndex = index;
       songPack = candidate;
       media = candidateMedia || {};
+    }
+  }
+
+  if (!isTrackAllowedByGenre(songPack[0], songPack[1], media, genreSettings, true)) {
+    const allowedFallback = profile.songs
+      .map((candidate, index) => ({ candidate, index }))
+      .find(({ candidate }) => isTrackAllowedByGenre(candidate[0], candidate[1], {}, genreSettings, true));
+
+    if (allowedFallback) {
+      chosenIndex = allowedFallback.index;
+      songPack = allowedFallback.candidate;
+      media = {};
     }
   }
 

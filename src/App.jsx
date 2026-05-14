@@ -469,6 +469,10 @@ function discoveryReason(auraKey) {
   return randomItem(pool.reasons) || "Aura discovered this track live from the mood, color, and energy of the image.";
 }
 
+function normalizeTrackKey(song = "", artist = "") {
+  return `${cleanQuery(song).toLowerCase()}::${cleanQuery(artist).toLowerCase()}`;
+}
+
 function normalizeDiscoveryTrack(track = {}) {
   return {
     song: track.song || "Unknown Track",
@@ -480,24 +484,65 @@ function normalizeDiscoveryTrack(track = {}) {
   };
 }
 
-async function fetchItunesDiscovery(auraKey) {
+function getRecentSongKeys(limit = 18) {
+  try {
+    const history = JSON.parse(safeLocalStorageGet("aura_history", "[]") || "[]");
+    return new Set(
+      history
+        .slice(0, limit)
+        .map((item) => normalizeTrackKey(item.song, item.artist))
+        .filter((key) => key !== "::")
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+function isExcludedTrack(song, artist, excludedKeys = new Set()) {
+  return excludedKeys.has(normalizeTrackKey(song, artist));
+}
+
+function discoveryQueriesForAura(auraKey) {
   const pool = AURA_DISCOVERY[auraKey] || AURA_DISCOVERY.grungeNoir;
-  const queries = shuffleItems(pool.queries);
+  const broadBoosters = [
+    "new music",
+    "underground",
+    "indie",
+    "viral",
+    "2024",
+    "2025",
+    "2026",
+    "deep cuts",
+    "fresh finds",
+    "playlist"
+  ];
+
+  const expanded = pool.queries.flatMap((query) => [
+    query,
+    `${query} ${randomItem(broadBoosters)}`,
+    `${randomItem(broadBoosters)} ${query}`
+  ]);
+
+  return shuffleItems([...new Set(expanded)]);
+}
+
+async function fetchItunesDiscovery(auraKey, excludedKeys = new Set()) {
+  const queries = discoveryQueriesForAura(auraKey);
 
   for (const rawQuery of queries) {
     try {
       const query = encodeURIComponent(rawQuery);
-      const url = `https://itunes.apple.com/search?term=${query}&media=music&entity=song&country=US&limit=50`;
+      const url = `https://itunes.apple.com/search?term=${query}&media=music&entity=song&country=US&limit=75&_=${Date.now()}`;
       const data = await fetchJson(url);
       const results = (Array.isArray(data?.results) ? data.results : [])
-        .filter((item) => item.previewUrl && item.trackName && item.artistName);
+        .filter((item) => item.previewUrl && item.trackName && item.artistName)
+        .filter((item) => !isExcludedTrack(item.trackName, item.artistName, excludedKeys));
 
       if (!results.length) continue;
 
-      const picked = randomItem(results.slice(0, Math.min(results.length, 35)));
+      const topWindow = results.slice(0, Math.min(results.length, 55));
+      const picked = randomItem(topWindow);
       const previewUrl = picked.previewUrl?.replace("http://", "https://") || "";
-
-      
 
       return normalizeDiscoveryTrack({
         song: picked.trackName,
@@ -515,12 +560,11 @@ async function fetchItunesDiscovery(auraKey) {
   return null;
 }
 
-async function fetchDeezerDiscovery(auraKey) {
-  const pool = AURA_DISCOVERY[auraKey] || AURA_DISCOVERY.grungeNoir;
-  const queries = shuffleItems(pool.queries);
+async function fetchDeezerDiscovery(auraKey, excludedKeys = new Set()) {
+  const queries = discoveryQueriesForAura(auraKey);
 
   for (const rawQuery of queries) {
-    const deezerUrl = `https://api.deezer.com/search?q=${encodeURIComponent(rawQuery)}&limit=50`;
+    const deezerUrl = `https://api.deezer.com/search?q=${encodeURIComponent(rawQuery)}&limit=75`;
     const urls = [
       `https://api.allorigins.win/raw?url=${encodeURIComponent(deezerUrl)}`,
       `https://corsproxy.io/?${encodeURIComponent(deezerUrl)}`
@@ -530,14 +574,14 @@ async function fetchDeezerDiscovery(auraKey) {
       try {
         const data = await fetchJson(url);
         const results = (Array.isArray(data?.data) ? data.data : [])
-          .filter((item) => item.preview && item.title && item.artist?.name);
+          .filter((item) => item.preview && item.title && item.artist?.name)
+          .filter((item) => !isExcludedTrack(item.title, item.artist?.name, excludedKeys));
 
         if (!results.length) continue;
 
-        const picked = randomItem(results.slice(0, Math.min(results.length, 35)));
+        const topWindow = results.slice(0, Math.min(results.length, 55));
+        const picked = randomItem(topWindow);
         const previewUrl = picked.preview?.replace("http://", "https://") || "";
-
-        
 
         return normalizeDiscoveryTrack({
           song: picked.title,
@@ -559,13 +603,19 @@ async function fetchDeezerDiscovery(auraKey) {
 async function buildFreshAuraResult(auraKey, colors = ["6d5dfc", "19d8ff", "ff3df2"]) {
   const profile = AURA_PROFILES[auraKey] || AURA_PROFILES.grungeNoir;
   const safeColors = colors?.length >= 3 ? colors : profile.colorFallback;
+  const excludedKeys = getRecentSongKeys(18);
 
   const discovered =
-    (await fetchItunesDiscovery(auraKey)) ||
-    (await fetchDeezerDiscovery(auraKey));
+    (await fetchItunesDiscovery(auraKey, excludedKeys)) ||
+    (await fetchDeezerDiscovery(auraKey, excludedKeys));
 
   if (!discovered?.song || !discovered?.artist) {
-    const randomSongIndex = Math.floor(Math.random() * profile.songs.length);
+    const availableIndexes = profile.songs
+      .map((songPack, index) => ({ songPack, index }))
+      .filter(({ songPack }) => !isExcludedTrack(songPack[0], songPack[1], excludedKeys));
+    const randomSongIndex = availableIndexes.length
+      ? randomItem(availableIndexes).index
+      : Math.floor(Math.random() * profile.songs.length);
     return buildResult(auraKey, randomSongIndex, safeColors, true);
   }
 
@@ -1636,7 +1686,9 @@ const entry = {
     };
 
     setAuraHistory((prev) => {
-      const next = [entry, ...prev].slice(0, 8);
+      const entryKey = normalizeTrackKey(entry.song, entry.artist);
+      const withoutDuplicate = prev.filter((item) => normalizeTrackKey(item.song, item.artist) !== entryKey);
+      const next = [entry, ...withoutDuplicate].slice(0, 18);
       safeLocalStorageSet("aura_history", JSON.stringify(next));
       return next;
     });

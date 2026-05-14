@@ -1617,6 +1617,15 @@ export default function App() {
   useEffect(() => {
     if (!result) return;
 
+    useEffect(() => {
+  if (result?.previewUrl) {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        playPreviewUrl(result.previewUrl, true);
+      });
+    });
+  }
+}, [result]);
     const entry = {
       id: `${result.song}-${result.artist}-${Date.now()}`,
       aura: result.aura,

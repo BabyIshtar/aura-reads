@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Camera, ImagePlus, Music, RefreshCw, Sparkles, ExternalLink, Play, Pause } from "lucide-react";
+import { Camera, ImagePlus, Music, RefreshCw, Sparkles, ExternalLink, Play, Pause, Settings, X } from "lucide-react";
 
 const AURA_PROFILES = {
   grungeNoir: {
@@ -98,6 +98,7 @@ function getArtistSummary(artist = "") {
 
 function getAuraDescription(result) {
   if (!result) return "";
+  if (result.aiInsight) return result.aiInsight;
   const mood = result.mood || "emotional · visual · cinematic";
   return `This aura leans ${mood}. It feels like ${result.song} because the image carries the same color pressure, emotional temperature, and visual rhythm.`;
 }
@@ -383,6 +384,39 @@ async function fetchSongMedia(song, artist) {
 }
 
 
+const DEFAULT_GENRE_SETTINGS = {
+  rbSoul: true,
+  rapHipHop: true,
+  indieAlt: true,
+  electronic: true,
+  pop: true,
+  rock: true,
+  cinematic: true
+};
+
+const GENRE_OPTIONS = [
+  { key: "rbSoul", label: "R&B / Soul", terms: ["alternative r&b", "neo soul", "smooth r&b", "soulful"] },
+  { key: "rapHipHop", label: "Rap / Hip-Hop", terms: ["hip hop", "rap", "cloud rap", "melodic rap"] },
+  { key: "indieAlt", label: "Indie / Alt", terms: ["indie", "alternative", "bedroom pop", "shoegaze"] },
+  { key: "electronic", label: "Electronic", terms: ["electronic", "synthwave", "darkwave", "ambient electronic"] },
+  { key: "pop", label: "Pop", terms: ["dark pop", "alt pop", "dream pop", "pop"] },
+  { key: "rock", label: "Rock", terms: ["alternative rock", "post punk", "grunge", "guitar"] },
+  { key: "cinematic", label: "Cinematic", terms: ["cinematic", "atmospheric", "night drive", "moody soundtrack"] }
+];
+
+function normalizeGenreSettings(value = {}) {
+  const merged = { ...DEFAULT_GENRE_SETTINGS, ...(value || {}) };
+  const hasEnabled = Object.values(merged).some(Boolean);
+  return hasEnabled ? merged : { ...DEFAULT_GENRE_SETTINGS };
+}
+
+function enabledGenreTerms(settings = DEFAULT_GENRE_SETTINGS) {
+  const safeSettings = normalizeGenreSettings(settings);
+  return GENRE_OPTIONS
+    .filter((genre) => safeSettings[genre.key])
+    .flatMap((genre) => genre.terms);
+}
+
 const AURA_DISCOVERY = {
   grungeNoir: {
     queries: [
@@ -502,12 +536,11 @@ function isExcludedTrack(song, artist, excludedKeys = new Set()) {
   return excludedKeys.has(normalizeTrackKey(song, artist));
 }
 
-function discoveryQueriesForAura(auraKey) {
+function discoveryQueriesForAura(auraKey, genreSettings = DEFAULT_GENRE_SETTINGS, imageBrain = null) {
   const pool = AURA_DISCOVERY[auraKey] || AURA_DISCOVERY.grungeNoir;
   const broadBoosters = [
     "new music",
     "underground",
-    "indie",
     "viral",
     "2024",
     "2025",
@@ -516,18 +549,31 @@ function discoveryQueriesForAura(auraKey) {
     "fresh finds",
     "playlist"
   ];
+  const genreTerms = enabledGenreTerms(genreSettings);
+  const intelligenceTerms = [
+    imageBrain?.energyLabel,
+    imageBrain?.lightLabel,
+    imageBrain?.textureLabel,
+    imageBrain?.temperatureLabel
+  ].filter(Boolean);
 
-  const expanded = pool.queries.flatMap((query) => [
-    query,
-    `${query} ${randomItem(broadBoosters)}`,
-    `${randomItem(broadBoosters)} ${query}`
-  ]);
+  const expanded = pool.queries.flatMap((query) => {
+    const genre = randomItem(genreTerms) || "atmospheric";
+    const booster = randomItem(broadBoosters);
+    const smartTerm = randomItem(intelligenceTerms) || "moody";
+    return [
+      `${query} ${genre}`,
+      `${query} ${genre} ${booster}`,
+      `${smartTerm} ${genre} ${query}`,
+      `${booster} ${smartTerm} ${genre}`
+    ];
+  });
 
   return shuffleItems([...new Set(expanded)]);
 }
 
-async function fetchItunesDiscovery(auraKey, excludedKeys = new Set()) {
-  const queries = discoveryQueriesForAura(auraKey);
+async function fetchItunesDiscovery(auraKey, excludedKeys = new Set(), genreSettings = DEFAULT_GENRE_SETTINGS, imageBrain = null) {
+  const queries = discoveryQueriesForAura(auraKey, genreSettings, imageBrain);
 
   for (const rawQuery of queries) {
     try {
@@ -560,8 +606,8 @@ async function fetchItunesDiscovery(auraKey, excludedKeys = new Set()) {
   return null;
 }
 
-async function fetchDeezerDiscovery(auraKey, excludedKeys = new Set()) {
-  const queries = discoveryQueriesForAura(auraKey);
+async function fetchDeezerDiscovery(auraKey, excludedKeys = new Set(), genreSettings = DEFAULT_GENRE_SETTINGS, imageBrain = null) {
+  const queries = discoveryQueriesForAura(auraKey, genreSettings, imageBrain);
 
   for (const rawQuery of queries) {
     const deezerUrl = `https://api.deezer.com/search?q=${encodeURIComponent(rawQuery)}&limit=75`;
@@ -600,14 +646,14 @@ async function fetchDeezerDiscovery(auraKey, excludedKeys = new Set()) {
   return null;
 }
 
-async function buildFreshAuraResult(auraKey, colors = ["6d5dfc", "19d8ff", "ff3df2"]) {
+async function buildFreshAuraResult(auraKey, colors = ["6d5dfc", "19d8ff", "ff3df2"], genreSettings = DEFAULT_GENRE_SETTINGS, imageBrain = null) {
   const profile = AURA_PROFILES[auraKey] || AURA_PROFILES.grungeNoir;
   const safeColors = colors?.length >= 3 ? colors : profile.colorFallback;
   const excludedKeys = getRecentSongKeys(18);
 
   const discovered =
-    (await fetchItunesDiscovery(auraKey, excludedKeys)) ||
-    (await fetchDeezerDiscovery(auraKey, excludedKeys));
+    (await fetchItunesDiscovery(auraKey, excludedKeys, genreSettings, imageBrain)) ||
+    (await fetchDeezerDiscovery(auraKey, excludedKeys, genreSettings, imageBrain));
 
   if (!discovered?.song || !discovered?.artist) {
     const availableIndexes = profile.songs
@@ -616,7 +662,7 @@ async function buildFreshAuraResult(auraKey, colors = ["6d5dfc", "19d8ff", "ff3d
     const randomSongIndex = availableIndexes.length
       ? randomItem(availableIndexes).index
       : Math.floor(Math.random() * profile.songs.length);
-    return buildResult(auraKey, randomSongIndex, safeColors, true);
+    return buildResult(auraKey, randomSongIndex, safeColors, true, imageBrain);
   }
 
   const spotifyMedia = await fetchSpotifyMedia(discovered.song, discovered.artist);
@@ -639,6 +685,8 @@ async function buildFreshAuraResult(auraKey, colors = ["6d5dfc", "19d8ff", "ff3d
     song: media.song,
     artist: media.artist,
     reason: discoveryReason(auraKey),
+    aiInsight: buildAuraInsight({ ...imageBrain, auraKey }, media.song),
+    visualBrain: { ...imageBrain, auraKey },
     albumArt: media.albumArt || generatedAlbumArt(media.song, media.artist, safeColors),
     previewUrl: media.previewUrl || "",
     appleMusicUrl: media.appleMusicUrl || "",
@@ -690,6 +738,33 @@ function pickAuraFromColors(stats) {
   }
 
   return winner;
+}
+
+function describeVisualBrain(stats = {}) {
+  const brightness = stats.brightness || 0;
+  const saturation = stats.saturation || 0;
+  const contrast = stats.contrast || 0;
+  const warmth = stats.warmth || 0;
+  const colorSpread = stats.colorSpread || 0;
+
+  const energyLabel = saturation > 68 || colorSpread > 92 ? "high energy" : contrast > 52 ? "intense" : brightness > 130 ? "open" : "low tempo";
+  const lightLabel = brightness < 74 ? "low light" : brightness > 145 ? "bright light" : "soft light";
+  const textureLabel = contrast > 58 ? "sharp texture" : saturation < 32 ? "minimal texture" : "smooth texture";
+  const temperatureLabel = warmth > 30 ? "warm" : warmth < -12 ? "cool" : "neutral";
+  const confidence = Math.min(98, Math.max(62, Math.round(58 + Math.abs(warmth) * 0.22 + saturation * 0.22 + contrast * 0.18 + colorSpread * 0.08)));
+
+  return { energyLabel, lightLabel, textureLabel, temperatureLabel, confidence };
+}
+
+function buildAuraInsight(imageBrain = {}, song = "this song") {
+  const profile = AURA_PROFILES[imageBrain?.auraKey] || AURA_PROFILES.grungeNoir;
+  const energy = imageBrain?.energyLabel || "emotional";
+  const light = imageBrain?.lightLabel || "soft light";
+  const texture = imageBrain?.textureLabel || "visual texture";
+  const temp = imageBrain?.temperatureLabel || "balanced";
+  const confidence = imageBrain?.confidence || 78;
+
+  return `Aura read this as ${profile.mood}: ${light}, ${temp} color temperature, ${texture}, and ${energy} motion. That is why it matched ${song} — the track carries a similar emotional rhythm and visual pressure. Reading confidence: ${confidence}%.`;
 }
 
 function extractImageMood(imageSrc) {
@@ -753,9 +828,13 @@ function extractImageMood(imageSrc) {
         rgbToHex(c3[0] * 1.25, c3[1] * 1.25, c3[2] * 1.25)
       ];
 
+      const auraKey = pickAuraFromColors({ brightness, warmth, saturation, contrast, red, green, blue, colorSpread });
+      const visualBrain = describeVisualBrain({ brightness, warmth, saturation, contrast, red, green, blue, colorSpread });
+
       resolve({
-        auraKey: pickAuraFromColors({ brightness, warmth, saturation, contrast, red, green, blue, colorSpread }),
-        colors
+        auraKey,
+        colors,
+        visualBrain: { ...visualBrain, brightness, warmth, saturation, contrast, colorSpread }
       });
     };
 
@@ -768,7 +847,7 @@ function extractImageMood(imageSrc) {
   });
 }
 
-async function buildResult(auraKey, songIndex = 0, colors = ["6d5dfc", "19d8ff", "ff3df2"], requirePlayable = false) {
+async function buildResult(auraKey, songIndex = 0, colors = ["6d5dfc", "19d8ff", "ff3df2"], requirePlayable = false, imageBrain = null) {
   const profile = AURA_PROFILES[auraKey] || AURA_PROFILES.grungeNoir;
   const safeColors = colors?.length >= 3 ? colors : profile.colorFallback;
 
@@ -813,6 +892,7 @@ async function buildResult(auraKey, songIndex = 0, colors = ["6d5dfc", "19d8ff",
     song,
     artist,
     reason,
+    aiInsight: buildAuraInsight({ ...imageBrain, auraKey }, song),
     albumArt,
     previewUrl: media.previewUrl || "",
     appleMusicUrl: media.appleMusicUrl || "",
@@ -885,8 +965,12 @@ function scanVideoMood(video) {
   const c2 = colorful[Math.floor(colorful.length * 0.35)] || [blue, red, green];
   const c3 = colorful[Math.floor(colorful.length * 0.7)] || [green, blue, red];
 
+  const auraKey = pickAuraFromColors({ brightness, warmth, saturation, contrast, red, green, blue, colorSpread });
+  const visualBrain = describeVisualBrain({ brightness, warmth, saturation, contrast, red, green, blue, colorSpread });
+
   return {
-    auraKey: pickAuraFromColors({ brightness, warmth, saturation, contrast, red, green, blue, colorSpread }),
+    auraKey,
+    visualBrain: { ...visualBrain, brightness, warmth, saturation, contrast, colorSpread },
     colors: [
       rgbToHex(c1[0] * 1.14, c1[1] * 1.14, c1[2] * 1.14),
       rgbToHex(c2[0] * 1.22, c2[1] * 1.22, c2[2] * 1.22),
@@ -1570,6 +1654,14 @@ export default function App() {
     colors: ["6d5dfc", "19d8ff", "ff3df2"]
   });
   const [liveCapturing, setLiveCapturing] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [genreSettings, setGenreSettings] = useState(() => {
+    try {
+      return normalizeGenreSettings(JSON.parse(safeLocalStorageGet("aura_genre_settings", "null") || "null"));
+    } catch {
+      return { ...DEFAULT_GENRE_SETTINGS };
+    }
+  });
   const [showOnboarding, setShowOnboarding] = useState(() => !safeLocalStorageGet("aura_seen_onboarding"));
   const [auraHistory, setAuraHistory] = useState(() => {
     try {
@@ -1587,6 +1679,19 @@ export default function App() {
     "--aura-b": readableAccent(colors[1]),
     "--aura-c": readableAccent(colors[2])
   }), [colors]);
+
+  const enabledGenresCount = GENRE_OPTIONS.filter((genre) => genreSettings[genre.key]).length;
+
+  useEffect(() => {
+    safeLocalStorageSet("aura_genre_settings", JSON.stringify(genreSettings));
+  }, [genreSettings]);
+
+  function toggleGenre(key) {
+    setGenreSettings((prev) => {
+      const next = normalizeGenreSettings({ ...prev, [key]: !prev[key] });
+      return next;
+    });
+  }
 
 
 
@@ -1779,7 +1884,7 @@ const entry = {
       const mood = await extractImageMood(image);
       setImageColors(mood.colors);
 
-      const built = await buildFreshAuraResult(mood.auraKey, mood.colors);
+      const built = await buildFreshAuraResult(mood.auraKey, mood.colors, genreSettings, mood.visualBrain);
 
       revealTimerRef.current = window.setTimeout(() => {
         setLoading(false);
@@ -1809,7 +1914,7 @@ const entry = {
     setPlaying(false);
     setPreviewError("");
     fadeOutAndPause();
-    const next = await buildFreshAuraResult(result.auraKey, result.colors);
+    const next = await buildFreshAuraResult(result.auraKey, result.colors, genreSettings, result.visualBrain);
     setResult(next);
     setUnlocking(true);
     window.setTimeout(() => setUnlocking(false), 1250);
@@ -1874,7 +1979,7 @@ const entry = {
       setImageColors(mood.colors);
       closeLiveCameraMode();
 
-      const built = await buildFreshAuraResult(mood.auraKey, mood.colors);
+      const built = await buildFreshAuraResult(mood.auraKey, mood.colors, genreSettings, mood.visualBrain);
 
       revealTimerRef.current = window.setTimeout(() => {
         setLoading(false);
@@ -2164,6 +2269,75 @@ const entry = {
               >
                 Start reading
               </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+
+      <AnimatePresence>
+        {settingsOpen && (
+          <motion.div
+            className="fixed inset-0 z-[92] flex items-end justify-center bg-black/62 px-4 pb-4 backdrop-blur-2xl sm:items-center sm:pb-0"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="aura-onboarding-card w-full max-w-md rounded-[2.4rem] p-5 text-white"
+              initial={{ opacity: 0, y: 28, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 18, scale: 0.98 }}
+              transition={{ duration: 0.42, ease: CASCADE_EASE }}
+            >
+              <div className="mb-5 flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.34em] text-white/35">aura settings</p>
+                  <h2 className="mt-1 text-3xl font-black tracking-[-0.07em]">Music taste filter</h2>
+                  <p className="mt-2 text-sm leading-relaxed text-white/48">
+                    Toggle genres on or off. Aura will use these genres when it searches for the photo's song match.
+                  </p>
+                </div>
+                <button onClick={() => setSettingsOpen(false)} className="ios-glass rounded-full p-3 text-white/70 transition active:scale-95" aria-label="Close settings">
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 gap-2">
+                {GENRE_OPTIONS.map((genre) => {
+                  const enabled = !!genreSettings[genre.key];
+                  return (
+                    <button
+                      key={genre.key}
+                      onClick={() => toggleGenre(genre.key)}
+                      className={`flex items-center justify-between rounded-2xl border px-4 py-3 text-left transition active:scale-[0.985] ${enabled ? "border-white/18 bg-white/[0.09]" : "border-white/8 bg-black/20 opacity-55"}`}
+                    >
+                      <span>
+                        <span className="block text-sm font-semibold text-white/82">{genre.label}</span>
+                        <span className="block text-xs text-white/34">{genre.terms.slice(0, 3).join(" · ")}</span>
+                      </span>
+                      <span className={`h-7 w-12 rounded-full p-1 transition ${enabled ? "bg-[linear-gradient(90deg,var(--aura-a),var(--aura-b),var(--aura-c))]" : "bg-white/10"}`}>
+                        <span className={`block h-5 w-5 rounded-full bg-white shadow-lg transition ${enabled ? "translate-x-5" : "translate-x-0"}`} />
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => setGenreSettings({ ...DEFAULT_GENRE_SETTINGS })}
+                  className="ios-glass rounded-2xl px-4 py-3 text-sm font-semibold text-white/72 transition active:scale-[0.985]"
+                >
+                  Enable all
+                </button>
+                <button
+                  onClick={() => setSettingsOpen(false)}
+                  className="rounded-2xl bg-[linear-gradient(90deg,var(--aura-a),var(--aura-b),var(--aura-c))] px-4 py-3 text-sm font-black text-black transition active:scale-[0.985]"
+                >
+                  Save taste
+                </button>
+              </div>
             </motion.div>
           </motion.div>
         )}
@@ -2474,13 +2648,22 @@ const entry = {
             <p className="text-xs text-white/42">find the sound of a photo</p>
           </div>
 
-          <button
-            onClick={resetApp}
-            className="ios-glass rounded-full p-3 text-white/70 transition active:scale-95"
-            aria-label="Reset"
-          >
-            <RefreshCw size={16} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setSettingsOpen(true)}
+              className="ios-glass rounded-full p-3 text-white/70 transition active:scale-95"
+              aria-label="Settings"
+            >
+              <Settings size={16} />
+            </button>
+            <button
+              onClick={resetApp}
+              className="ios-glass rounded-full p-3 text-white/70 transition active:scale-95"
+              aria-label="Reset"
+            >
+              <RefreshCw size={16} />
+            </button>
+          </div>
         </header>
 
         <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
@@ -2491,6 +2674,9 @@ const entry = {
                   <p className="text-xs uppercase tracking-[0.38em] text-white/35">photo to music</p>
                   <h2 className="mx-auto max-w-sm text-5xl font-semibold leading-[0.92] tracking-[-0.08em]">Tap into your aura.</h2>
                   <p className="mx-auto max-w-xs text-sm leading-relaxed text-white/45">Upload a moment. Aura reads the mood and gives it a song.</p>
+                  <button onClick={() => setSettingsOpen(true)} className="mt-3 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-semibold text-white/48 transition active:scale-95">
+                    {enabledGenresCount} genres enabled
+                  </button>
                 </div>
 
                 <AuraSphere colors={colors} onClick={() => fileInputRef.current?.click()} loading={audioReactive} />
@@ -2551,6 +2737,22 @@ const entry = {
                   <p className="text-xs uppercase tracking-[0.32em] text-white/35">your aura</p>
                   <h2 className={`aura-result-title aura-type-glow mt-1 text-4xl ${auraTypographyClass(result.auraKey)}`}>{result.aura}</h2>
                   <p className="mt-2 text-sm text-white/58">{result.mood}</p>
+                  {result.visualBrain?.confidence && (
+                    <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                      <div className="rounded-2xl bg-white/[0.05] px-2 py-2">
+                        <p className="text-[9px] uppercase tracking-[0.2em] text-white/28">energy</p>
+                        <p className="mt-1 truncate text-xs font-semibold text-white/68">{result.visualBrain.energyLabel}</p>
+                      </div>
+                      <div className="rounded-2xl bg-white/[0.05] px-2 py-2">
+                        <p className="text-[9px] uppercase tracking-[0.2em] text-white/28">light</p>
+                        <p className="mt-1 truncate text-xs font-semibold text-white/68">{result.visualBrain.lightLabel}</p>
+                      </div>
+                      <div className="rounded-2xl bg-white/[0.05] px-2 py-2">
+                        <p className="text-[9px] uppercase tracking-[0.2em] text-white/28">read</p>
+                        <p className="mt-1 text-xs font-semibold text-white/68">{result.visualBrain.confidence}%</p>
+                      </div>
+                    </div>
+                  )}
                   <div className="mt-3 h-1.5 w-full rounded-full bg-[linear-gradient(90deg,var(--aura-a),var(--aura-b),var(--aura-c))] shadow-[0_0_28px_var(--aura-b)]" />
                   <div className="mt-2 flex gap-1.5">
                     <span className="h-1.5 w-1.5 rounded-full bg-[var(--aura-a)] opacity-80" />
@@ -2632,7 +2834,7 @@ const entry = {
           </div>
         )}
 
-        <footer className="pb-1 text-center text-[11px] text-white/28">Aura v0.6 · cinematic aura engine</footer>
+        <footer className="pb-1 text-center text-[11px] text-white/28">Aura v0.7 · smarter aura engine</footer>
       </section>
 
       <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={(event) => handleFile(event.target.files?.[0])} />

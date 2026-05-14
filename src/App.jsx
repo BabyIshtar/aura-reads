@@ -499,9 +499,35 @@ function generateAuraName(auraKey = "grungeNoir", imageBrain = null) {
 
 const US_MAINSTREAM_FILTER = {
   market: "US",
+  // Spotify does not expose total lifetime plays through the public Web API.
+  // This uses artist followers + track popularity as the reliable gate instead.
   minArtistFollowers: 30000,
-  minTrackPopularity: 18
+  minTrackPopularity: 20
 };
+
+const SPOTIFY_DISCOVERY_QUERY_LIMIT = 16;
+const SPOTIFY_DISCOVERY_PICK_POOL = 90;
+
+function scoreSpotifyCandidate(track = {}) {
+  const popularity = Number(track.popularity ?? 0);
+  const followers = Number(track.artistFollowers ?? 0);
+  const followerScore = Math.min(45, Math.log10(Math.max(1, followers)) * 7);
+  const previewBonus = track.preview_url ? 9 : 0;
+  const artBonus = track.album?.images?.length ? 4 : 0;
+  const randomNoise = Math.random() * 26;
+  return popularity + followerScore + previewBonus + artBonus + randomNoise;
+}
+
+function spotifyTrackGenreLooksAllowed(track = {}, searchGenreKey, genreSettings = DEFAULT_GENRE_SETTINGS) {
+  if (!genreAllowedForSettings([searchGenreKey].filter(Boolean), genreSettings, true)) return false;
+
+  const artistGenres = Array.isArray(track.artistGenres) ? track.artistGenres : [];
+  if (!artistGenres.length) return true;
+
+  const matchedKeys = detectGenreKeysFromText(artistGenres.join(" "));
+  if (!matchedKeys.length) return true;
+  return matchedKeys.includes(searchGenreKey) && genreAllowedForSettings(matchedKeys, genreSettings, true);
+}
 
 function isUsMarketTrack(metadata = {}) {
   const markets = metadata.availableMarkets || metadata.available_markets || [];
@@ -795,61 +821,76 @@ function discoveryQueriesForAura(auraKey, genreSettings = DEFAULT_GENRE_SETTINGS
 }
 
 async function fetchSpotifyDiscovery(auraKey, excludedKeys = new Set(), genreSettings = DEFAULT_GENRE_SETTINGS, imageBrain = null) {
-  const queries = discoveryQueriesForAura(auraKey, genreSettings, imageBrain);
+  const queries = discoveryQueriesForAura(auraKey, genreSettings, imageBrain).slice(0, SPOTIFY_DISCOVERY_QUERY_LIMIT);
+  const candidates = [];
+  const seen = new Set();
 
   for (const queryItem of queries) {
     const rawQuery = queryItem.text;
     const searchGenreKey = queryItem.genreKey;
 
     try {
-      const params = new URLSearchParams({ q: rawQuery, limit: "50" });
+      const params = new URLSearchParams({ q: rawQuery, limit: "50", market: "US" });
       const data = await fetchJson(`/api/spotify-search?${params.toString()}&_=${Date.now()}`);
-      const results = (Array.isArray(data?.tracks) ? data.tracks : [])
-        .filter((track) => track?.name && track?.artists?.[0]?.name)
-        .filter((track) => !isExcludedTrack(track.name, track.artists[0].name, excludedKeys))
-        .filter((track) => genreAllowedForSettings([searchGenreKey], genreSettings, true))
-        .filter((track) => isUsMainstreamEligible({
+      const tracks = Array.isArray(data?.tracks) ? data.tracks : [];
+
+      for (const track of tracks) {
+        const artistName = track?.artists?.[0]?.name || "";
+        const trackKey = normalizeTrackKey(track?.name, artistName);
+        if (!track?.name || !artistName || seen.has(trackKey)) continue;
+        if (isExcludedTrack(track.name, artistName, excludedKeys)) continue;
+
+        const mainstreamMetadata = {
           spotifyTrackId: track.id,
           spotifyUrl: track.external_urls?.spotify || "",
           popularity: track.popularity,
           artistFollowers: track.artistFollowers,
           availableMarkets: track.available_markets || [],
           spotifyVerified: true
-        }, true));
+        };
 
-      if (!results.length) continue;
+        if (!isUsMainstreamEligible(mainstreamMetadata, true)) continue;
+        if (!spotifyTrackGenreLooksAllowed(track, searchGenreKey, genreSettings)) continue;
 
-      const picked = randomItem(results.slice(0, Math.min(results.length, 35)));
-      const albumImages = picked.album?.images || [];
-      const releaseDate = picked.album?.release_date || "";
-      const artistName = picked.artists?.[0]?.name || "Unknown Artist";
-
-      return normalizeDiscoveryTrack({
-        song: picked.name,
-        artist: artistName,
-        albumArt: albumImages[0]?.url || albumImages[1]?.url || "",
-        previewUrl: picked.preview_url || "",
-        spotifyUrl: picked.external_urls?.spotify || "",
-        spotifyTrackId: picked.id || "",
-        collectionName: picked.album?.name || "",
-        genreKey: searchGenreKey,
-        searchGenreKey,
-        popularity: picked.popularity ?? null,
-        releaseYear: releaseDate ? releaseDate.slice(0, 4) : "",
-        genres: picked.artistGenres || [],
-        artistImage: picked.artistImage || "",
-        artistFollowers: picked.artistFollowers ?? 0,
-        availableMarkets: picked.available_markets || [],
-        spotifyVerified: true
-      });
+        seen.add(trackKey);
+        candidates.push({ track, searchGenreKey, score: scoreSpotifyCandidate(track) });
+      }
     } catch (error) {
       console.warn("Spotify discovery failed", rawQuery, error);
     }
   }
 
-  return null;
-}
+  if (!candidates.length) return null;
 
+  const ranked = shuffleItems(candidates)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, Math.min(candidates.length, SPOTIFY_DISCOVERY_PICK_POOL));
+  const pickedBundle = randomItem(ranked.slice(0, Math.min(ranked.length, 35))) || ranked[0];
+  const picked = pickedBundle.track;
+  const searchGenreKey = pickedBundle.searchGenreKey;
+  const albumImages = picked.album?.images || [];
+  const releaseDate = picked.album?.release_date || "";
+  const artistName = picked.artists?.[0]?.name || "Unknown Artist";
+
+  return normalizeDiscoveryTrack({
+    song: picked.name,
+    artist: artistName,
+    albumArt: albumImages[0]?.url || albumImages[1]?.url || "",
+    previewUrl: picked.preview_url || "",
+    spotifyUrl: picked.external_urls?.spotify || "",
+    spotifyTrackId: picked.id || "",
+    collectionName: picked.album?.name || "",
+    genreKey: searchGenreKey,
+    searchGenreKey,
+    popularity: picked.popularity ?? null,
+    releaseYear: releaseDate ? releaseDate.slice(0, 4) : "",
+    genres: picked.artistGenres || [],
+    artistImage: picked.artistImage || "",
+    artistFollowers: picked.artistFollowers ?? 0,
+    availableMarkets: picked.available_markets || [],
+    spotifyVerified: true
+  });
+}
 async function fetchItunesDiscovery(auraKey, excludedKeys = new Set(), genreSettings = DEFAULT_GENRE_SETTINGS, imageBrain = null) {
   const queries = discoveryQueriesForAura(auraKey, genreSettings, imageBrain);
 
@@ -940,14 +981,14 @@ async function fetchDeezerDiscovery(auraKey, excludedKeys = new Set(), genreSett
 async function buildFreshAuraResult(auraKey, colors = ["6d5dfc", "19d8ff", "ff3df2"], genreSettings = DEFAULT_GENRE_SETTINGS, imageBrain = null) {
   const profile = AURA_PROFILES[auraKey] || AURA_PROFILES.grungeNoir;
   const safeColors = colors?.length >= 3 ? colors : profile.colorFallback;
-  const excludedKeys = getRecentSongKeys(18);
+  const excludedKeys = getRecentSongKeys(28);
 
-  const discovered =
-    (await fetchSpotifyDiscovery(auraKey, excludedKeys, genreSettings, imageBrain)) ||
-    (await fetchItunesDiscovery(auraKey, excludedKeys, genreSettings, imageBrain)) ||
-    (await fetchDeezerDiscovery(auraKey, excludedKeys, genreSettings, imageBrain));
+  // Spotify is now the eligibility gate. Apple/iTunes and Deezer are only used later
+  // to fill missing 30-second previews/artwork for the exact Spotify-approved song.
+  const discovered = await fetchSpotifyDiscovery(auraKey, excludedKeys, genreSettings, imageBrain);
 
   if (!discovered?.song || !discovered?.artist) {
+    console.warn("No Spotify-approved live discovery result found. Using a same-genre emergency fallback.");
     const availableIndexes = profile.songs
       .map((songPack, index) => ({ songPack, index }))
       .filter(({ songPack }) => !isExcludedTrack(songPack[0], songPack[1], excludedKeys))
@@ -959,56 +1000,21 @@ async function buildFreshAuraResult(auraKey, colors = ["6d5dfc", "19d8ff", "ff3d
   }
 
   const spotifyMedia = await fetchSpotifyMedia(discovered.song, discovered.artist);
-  const discoveredMetadata = {
+  const spotifyProof = {
+    ...discovered,
     ...spotifyMedia,
-    primaryGenreName: discovered.primaryGenreName,
-    collectionName: spotifyMedia.collectionName || discovered.collectionName,
+    spotifyTrackId: discovered.spotifyTrackId || spotifyMedia.spotifyTrackId,
+    spotifyUrl: discovered.spotifyUrl || spotifyMedia.spotifyUrl,
+    popularity: discovered.popularity ?? spotifyMedia.popularity,
+    artistFollowers: discovered.artistFollowers ?? spotifyMedia.artistFollowers,
+    availableMarkets: discovered.availableMarkets || spotifyMedia.availableMarkets || [],
+    genres: discovered.genres?.length ? discovered.genres : spotifyMedia.genres || [],
+    spotifyVerified: true,
     genreKey: discovered.genreKey
   };
 
-  if (!isLiveDiscoveryEligible({ ...discovered, ...discoveredMetadata })) {
-    console.warn("Live discovery rejected by US-mainstream/artwork gate", discovered.song, discovered.artist);
-    const recovered = await fetchItunesDiscovery(auraKey, excludedKeys, genreSettings, imageBrain)
-      || await fetchDeezerDiscovery(auraKey, excludedKeys, genreSettings, imageBrain);
-
-    if (recovered?.song && recovered?.artist && recovered.albumArt) {
-      return {
-        auraKey,
-        songIndex: Date.now(),
-        colors: safeColors,
-        aura: generateAuraName(auraKey, imageBrain),
-        mood: profile.mood,
-        song: recovered.song,
-        artist: recovered.artist,
-        reason: discoveryReason(auraKey),
-        aiInsight: buildAuraInsight({ ...imageBrain, auraKey }, recovered.song),
-        visualBrain: { ...imageBrain, auraKey },
-        albumArt: recovered.albumArt || generatedAlbumArt(recovered.song, recovered.artist, safeColors),
-        previewUrl: recovered.previewUrl || "",
-        appleMusicUrl: recovered.appleMusicUrl || "",
-        collectionName: recovered.collectionName || "",
-        spotifyUrl: recovered.spotifyUrl || `https://open.spotify.com/search/${encodeURIComponent(`${recovered.song} ${recovered.artist}`)}`,
-        spotifyTrackId: recovered.spotifyTrackId || "",
-        popularity: recovered.popularity ?? null,
-        releaseYear: recovered.releaseYear || "",
-        genres: recovered.genres || [],
-        artistImage: recovered.artistImage || "",
-        artistFollowers: recovered.artistFollowers ?? 0,
-        usMainstreamVerified: Boolean(recovered.spotifyTrackId)
-      };
-    }
-
-    const availableIndexes = profile.songs
-      .map((songPack, index) => ({ songPack, index }))
-      .filter(({ songPack }) => !isExcludedTrack(songPack[0], songPack[1], excludedKeys))
-      .filter(({ songPack }) => isTrackAllowedByGenre(songPack[0], songPack[1], {}, genreSettings, true));
-    const randomSongIndex = availableIndexes.length
-      ? randomItem(availableIndexes).index
-      : Math.floor(Math.random() * profile.songs.length);
-    return buildResult(auraKey, randomSongIndex, safeColors, true, imageBrain, genreSettings);
-  }
-
-  if (!isTrackAllowedByGenre(discovered.song, discovered.artist, discoveredMetadata, genreSettings, true)) {
+  if (!isUsMainstreamEligible(spotifyProof, true) || !isTrackAllowedByGenre(discovered.song, discovered.artist, spotifyProof, genreSettings, true)) {
+    console.warn("Spotify discovery rejected after final validation", discovered.song, discovered.artist);
     const availableIndexes = profile.songs
       .map((songPack, index) => ({ songPack, index }))
       .filter(({ songPack }) => !isExcludedTrack(songPack[0], songPack[1], excludedKeys))
@@ -1024,10 +1030,15 @@ async function buildFreshAuraResult(auraKey, colors = ["6d5dfc", "19d8ff", "ff3d
     ...spotifyMedia,
     ...previewMedia,
     ...discovered,
-    albumArt: spotifyMedia.albumArt || previewMedia.albumArt || discovered.albumArt,
+    albumArt: discovered.albumArt || spotifyMedia.albumArt || previewMedia.albumArt,
     previewUrl: discovered.previewUrl || previewMedia.previewUrl || spotifyMedia.previewUrl || "",
-    spotifyUrl: spotifyMedia.spotifyUrl || discovered.spotifyUrl || `https://open.spotify.com/search/${encodeURIComponent(`${discovered.song} ${discovered.artist}`)}`,
-    collectionName: spotifyMedia.collectionName || previewMedia.collectionName || discovered.collectionName || ""
+    spotifyUrl: discovered.spotifyUrl || spotifyMedia.spotifyUrl || `https://open.spotify.com/search/${encodeURIComponent(`${discovered.song} ${discovered.artist}`)}`,
+    collectionName: discovered.collectionName || spotifyMedia.collectionName || previewMedia.collectionName || "",
+    artistFollowers: discovered.artistFollowers ?? spotifyMedia.artistFollowers ?? 0,
+    popularity: discovered.popularity ?? spotifyMedia.popularity ?? null,
+    genres: discovered.genres?.length ? discovered.genres : spotifyMedia.genres || [],
+    availableMarkets: discovered.availableMarkets || spotifyMedia.availableMarkets || [],
+    spotifyVerified: true
   };
 
   const auraName = generateAuraName(auraKey, imageBrain);
@@ -1057,7 +1068,6 @@ async function buildFreshAuraResult(auraKey, colors = ["6d5dfc", "19d8ff", "ff3d
     usMainstreamVerified: isUsMainstreamEligible(media, true)
   };
 }
-
 function pickAuraFromColors(stats) {
   const { brightness, warmth, saturation, contrast, red, green, blue, colorSpread } = stats;
   const scores = {

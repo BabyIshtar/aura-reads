@@ -9,6 +9,7 @@ export default async function handler(req, res) {
   const artist = String(req.query.artist || "").trim();
   const q = String(req.query.q || "").trim();
   const limit = Math.min(Math.max(Number(req.query.limit || 30), 1), 50);
+  const market = String(req.query.market || "US").trim().toUpperCase() || "US";
 
   if (!q && !song && !artist) {
     return res.status(400).json({ error: "Missing song, artist, or q" });
@@ -38,7 +39,7 @@ export default async function handler(req, res) {
 
     const { access_token } = await tokenResponse.json();
     const searchText = q || `track:${song} artist:${artist}`.trim();
-    const searchUrl = `https://api.spotify.com/v1/search?q=${encodeURIComponent(searchText)}&type=track&market=US&limit=${limit}`;
+    const searchUrl = `https://api.spotify.com/v1/search?q=${encodeURIComponent(searchText)}&type=track&market=${encodeURIComponent(market)}&limit=${limit}`;
 
     const searchResponse = await fetch(searchUrl, {
       headers: { Authorization: `Bearer ${access_token}` }
@@ -81,7 +82,7 @@ export default async function handler(req, res) {
       tracks: enrichedTracks,
       artist: firstArtist,
       artistFollowers: firstArtist?.followers?.total ?? 0,
-      market: "US"
+      market
     });
   } catch (error) {
     return res.status(500).json({ error: "Spotify server error", details: error?.message || String(error) });

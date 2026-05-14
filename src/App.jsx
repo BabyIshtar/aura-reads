@@ -1428,7 +1428,16 @@ export default function App() {
     const mood = await extractImageMood(image);
     setImageColors(mood.colors);
 
-    const built = await buildResult(mood.auraKey, 0, mood.colors, true);
+    const randomSongIndex = Math.floor(
+  Math.random() * AURA_PROFILES[mood.auraKey].songs.length
+);
+
+const built = await buildResult(
+  mood.auraKey,
+  randomSongIndex,
+  mood.colors,
+  true
+);
 
     window.setTimeout(() => {
       setLoading(false);

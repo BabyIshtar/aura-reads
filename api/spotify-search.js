@@ -7,9 +7,11 @@ export default async function handler(req, res) {
 
   const song = String(req.query.song || "").trim();
   const artist = String(req.query.artist || "").trim();
+  const q = String(req.query.q || "").trim();
+  const limit = Math.min(Math.max(Number(req.query.limit || 30), 1), 50);
 
-  if (!song && !artist) {
-    return res.status(400).json({ error: "Missing song or artist" });
+  if (!q && !song && !artist) {
+    return res.status(400).json({ error: "Missing song, artist, or q" });
   }
 
   const clientId = process.env.SPOTIFY_CLIENT_ID;
@@ -35,8 +37,8 @@ export default async function handler(req, res) {
     }
 
     const { access_token } = await tokenResponse.json();
-    const query = encodeURIComponent(`track:${song} artist:${artist}`.trim());
-    const searchUrl = `https://api.spotify.com/v1/search?q=${query}&type=track&market=US&limit=20`;
+    const searchText = q || `track:${song} artist:${artist}`.trim();
+    const searchUrl = `https://api.spotify.com/v1/search?q=${encodeURIComponent(searchText)}&type=track&market=US&limit=${limit}`;
 
     const searchResponse = await fetch(searchUrl, {
       headers: { Authorization: `Bearer ${access_token}` }
@@ -49,23 +51,36 @@ export default async function handler(req, res) {
 
     const searchData = await searchResponse.json();
     const tracks = searchData?.tracks?.items || [];
-    const firstArtistId = tracks[0]?.artists?.[0]?.id || "";
-    let artistData = null;
+    const artistIds = [...new Set(tracks.map((track) => track?.artists?.[0]?.id).filter(Boolean))].slice(0, 50);
+    let artistsById = {};
 
-    if (firstArtistId) {
-      const artistResponse = await fetch(`https://api.spotify.com/v1/artists/${firstArtistId}`, {
+    if (artistIds.length) {
+      const artistsResponse = await fetch(`https://api.spotify.com/v1/artists?ids=${artistIds.join(",")}`, {
         headers: { Authorization: `Bearer ${access_token}` }
       });
 
-      if (artistResponse.ok) {
-        artistData = await artistResponse.json();
+      if (artistsResponse.ok) {
+        const artistsData = await artistsResponse.json();
+        artistsById = Object.fromEntries((artistsData?.artists || []).filter(Boolean).map((item) => [item.id, item]));
       }
     }
 
+    const enrichedTracks = tracks.map((track) => {
+      const mainArtist = artistsById[track?.artists?.[0]?.id] || null;
+      return {
+        ...track,
+        artistFollowers: mainArtist?.followers?.total ?? 0,
+        artistGenres: mainArtist?.genres || [],
+        artistImage: mainArtist?.images?.[0]?.url || mainArtist?.images?.[1]?.url || ""
+      };
+    });
+
+    const firstArtist = tracks[0]?.artists?.[0]?.id ? artistsById[tracks[0].artists[0].id] : null;
+
     return res.status(200).json({
-      tracks,
-      artist: artistData,
-      artistFollowers: artistData?.followers?.total ?? 0,
+      tracks: enrichedTracks,
+      artist: firstArtist,
+      artistFollowers: firstArtist?.followers?.total ?? 0,
       market: "US"
     });
   } catch (error) {

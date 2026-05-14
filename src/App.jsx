@@ -1635,7 +1635,7 @@ export default function App() {
   }, [result?.song, result?.artist]);
 
 
-  async async function unlockMobileAudio() {
+  async function unlockMobileAudio() {
     const audio = audioRef.current;
     if (!audio) return;
 

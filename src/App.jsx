@@ -1469,6 +1469,7 @@ export default function App() {
   const audioRef = useRef(null);
   const fadeTimerRef = useRef(null);
   const autoPlayAfterMatchRef = useRef(false);
+  const lastAutoPlayedPreviewRef = useRef("");
   const liveCameraStreamRef = useRef(null);
 
   const [image, setImage] = useState(null);
@@ -1591,17 +1592,7 @@ export default function App() {
 
   useEffect(() => {
     if (!result) return;
-
-    useEffect(() => {
-  if (result?.previewUrl) {
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        playPreviewUrl(result.previewUrl, true);
-      });
-    });
-  }
-}, [result]);
-    const entry = {
+const entry = {
       id: `${result.song}-${result.artist}-${Date.now()}`,
       aura: result.aura,
       song: result.song,
@@ -1626,18 +1617,29 @@ export default function App() {
 
       audio.pause();
       audio.currentTime = 0;
+      audio.loop = false;
       audio.muted = true;
       audio.volume = 0;
-      audio.loop = true;
       audio.playsInline = true;
       audio.preload = "auto";
+
+      // A tiny silent WAV primes the audio element during the user's tap.
       audio.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=";
       audio.load();
 
       const prime = audio.play();
       if (prime !== undefined) await prime.catch(() => {});
+
+      audio.pause();
+      audio.currentTime = 0;
+      audio.loop = false;
+      audio.muted = false;
+      audio.volume = 1;
     } catch (error) {
       console.warn("Audio prime skipped", error);
+      audio.muted = false;
+      audio.volume = 1;
+      audio.loop = false;
     }
   }
 
@@ -1662,6 +1664,7 @@ export default function App() {
       return;
     }
 
+    
     
     
     autoPlayAfterMatchRef.current = true;
@@ -1692,10 +1695,27 @@ unlockMobileAudio();
       setUnlocking(true);
       window.setTimeout(() => setUnlocking(false), 780);
 
+      if (autoPlayAfterMatchRef.current && built?.previewUrl && lastAutoPlayedPreviewRef.current !== built.previewUrl) {
+        autoPlayAfterMatchRef.current = false;
+        lastAutoPlayedPreviewRef.current = built.previewUrl;
+        window.setTimeout(() => {
+          playPreviewUrl(built.previewUrl, true);
+        }, 260);
+      }
+
+      if (autoPlayAfterMatchRef.current && built?.previewUrl && lastAutoPlayedPreviewRef.current !== built.previewUrl) {
+        autoPlayAfterMatchRef.current = false;
+        lastAutoPlayedPreviewRef.current = built.previewUrl;
+        window.setTimeout(() => {
+          playPreviewUrl(built.previewUrl, true);
+        }, 260);
+      }
+
       // Auto-play the first aura match after the reveal.
       // This is armed by the user's Read Aura tap and backed by mobile audio priming.
-      if (autoPlayAfterMatchRef.current && built?.previewUrl) {
+      if (autoPlayAfterMatchRef.current && built?.previewUrl && lastAutoPlayedPreviewRef.current !== built.previewUrl) {
         autoPlayAfterMatchRef.current = false;
+        lastAutoPlayedPreviewRef.current = built.previewUrl;
         window.setTimeout(() => {
           playPreviewUrl(built.previewUrl, true);
         }, 260);
@@ -1746,7 +1766,10 @@ unlockMobileAudio();
     }
 
     
+    
+    autoPlayAfterMatchRef.current = true;
     unlockMobileAudio();
+unlockMobileAudio();
 
     setLiveCapturing(true);
     setLoading(true);
@@ -1875,15 +1898,17 @@ unlockMobileAudio();
       audio.playsInline = true;
       audio.preload = "auto";
       audio.src = previewUrl;
-      audio.load();
 
       if (autoStarted) {
+        // Muted-first playback is the most reliable cross-browser autoplay path.
         audio.muted = true;
         audio.volume = 0;
       } else {
         audio.muted = false;
         audio.volume = 1;
       }
+
+      audio.load();
 
       const playPromise = audio.play();
       if (playPromise !== undefined) await playPromise;
@@ -1893,9 +1918,15 @@ unlockMobileAudio();
       setPreviewError("");
 
       if (autoStarted) {
+        // Unmute shortly after playback begins. Some browsers may still block this;
+        // the manual Play Preview button remains the fallback.
         window.setTimeout(() => {
-          audio.muted = false;
-          audio.volume = 1;
+          try {
+            audio.muted = false;
+            audio.volume = 1;
+          } catch {
+            // ignore
+          }
         }, 180);
       }
     } catch (error) {
@@ -2433,22 +2464,14 @@ unlockMobileAudio();
                   </a>
 
                   <audio
-                    ref={audioRef}
-                    preload="none"
-                    playsInline
-                    crossOrigin="anonymous"
-                    onEnded={() => {
-                      clearFadeTimer();
-                      setPlaying(false);
-                      setAudioReactive(false);
-                    }}
-                    onPause={() => { setPlaying(false); setAudioReactive(false); }}
-                    onPlay={() => setPlaying(true)}
-                    onError={() => {
-                      setPlaying(false);
-                      if (result?.previewUrl) setPreviewError("Preview could not load from the music source. Tap Similar Track or Open song search.");
-                    }}
-                  />
+        ref={audioRef}
+        playsInline
+        preload="auto"
+        onEnded={() => {
+          setPlaying(false);
+          setAudioReactive(false);
+        }}
+      />
                 </div>
 
                 <div className="mt-3 grid grid-cols-2 gap-3">

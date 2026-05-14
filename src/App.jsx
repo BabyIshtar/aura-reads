@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Camera, ImagePlus, Music, RefreshCw, Sparkles, ExternalLink, Play, Pause, Share2, Download, Wand2, Heart, Users } from "lucide-react";
+import { Camera, ImagePlus, Music, RefreshCw, Sparkles, ExternalLink, Play, Pause } from "lucide-react";
 
 const AURA_PROFILES = {
   grungeNoir: {
@@ -144,35 +144,6 @@ const AURA_ENVIRONMENTS = {
 const IOS_EASE = [0.22, 1, 0.36, 1];
 const SOFT_SPRING = { type: "spring", stiffness: 72, damping: 20, mass: 1.05 };
 const CASCADE_EASE = [0.16, 1, 0.3, 1];
-
-const LOADING_PHRASES = [
-  "reading the emotional temperature",
-  "scanning light, scene, and style",
-  "building your aura name",
-  "searching live music memories",
-  "matching your image to a frequency"
-];
-
-const COMPATIBILITY_LINES = {
-  grungeNoir: "You match with people who love late-night drives, cinematic shadows, and heavy emotional texture.",
-  neonNightlife: "You match with people who move fast, chase neon, and turn every moment into after-hours energy.",
-  warmDreamscape: "You match with soft-hearted people, golden memories, and warm nostalgic energy.",
-  editorialLuxury: "You match with clean taste, quiet confidence, and polished visual control.",
-  stormPressure: "You match with focused energy, calm intensity, and blue-toned emotional weight."
-};
-
-function auraCompatibilityScore(result) {
-  if (!result) return 0;
-  const seed = `${result.aura}-${result.song}-${result.artist}`;
-  let total = 0;
-  for (let i = 0; i < seed.length; i += 1) total += seed.charCodeAt(i) * (i + 3);
-  return 72 + (total % 27);
-}
-
-function safeText(value = "") {
-  return String(value).replace(/[<>]/g, "").slice(0, 180);
-}
-
 
 function clamp(value, min = 0, max = 255) {
   return Math.max(min, Math.min(max, value));
@@ -830,6 +801,87 @@ async function buildResult(auraKey, songIndex = 0, colors = ["6d5dfc", "19d8ff",
   };
 }
 
+
+function scanVideoMood(video) {
+  if (!video || !video.videoWidth || !video.videoHeight) {
+    return {
+      auraKey: "neonNightlife",
+      colors: ["6d5dfc", "19d8ff", "ff3df2"]
+    };
+  }
+
+  const canvas = document.createElement("canvas");
+  const size = 72;
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+  ctx.drawImage(video, 0, 0, size, size);
+
+  const pixels = ctx.getImageData(0, 0, size, size).data;
+  let r = 0, g = 0, b = 0, count = 0, saturationTotal = 0, brightnessTotal = 0, brightnessSquared = 0;
+  const colorful = [];
+
+  for (let i = 0; i < pixels.length; i += 16) {
+    const red = pixels[i];
+    const green = pixels[i + 1];
+    const blue = pixels[i + 2];
+    const max = Math.max(red, green, blue);
+    const min = Math.min(red, green, blue);
+    const saturation = max === 0 ? 0 : ((max - min) / max) * 100;
+    const brightness = (red + green + blue) / 3;
+
+    r += red;
+    g += green;
+    b += blue;
+    saturationTotal += saturation;
+    brightnessTotal += brightness;
+    brightnessSquared += brightness * brightness;
+    count += 1;
+
+    if (saturation > 24 && brightness > 38) {
+      colorful.push([red, green, blue, saturation, brightness]);
+    }
+  }
+
+  const red = r / count;
+  const green = g / count;
+  const blue = b / count;
+  const brightness = (red + green + blue) / 3;
+  const warmth = red + green * 0.35 - blue * 1.08;
+  const saturation = saturationTotal / count;
+  const meanBrightness = brightnessTotal / count;
+  const contrast = Math.sqrt(Math.max(0, brightnessSquared / count - meanBrightness * meanBrightness));
+  const colorSpread = Math.max(red, green, blue) - Math.min(red, green, blue);
+
+  colorful.sort((a, b) => (b[3] + b[4] * 0.22) - (a[3] + a[4] * 0.22));
+
+  const c1 = colorful[0] || [red, green, blue];
+  const c2 = colorful[Math.floor(colorful.length * 0.35)] || [blue, red, green];
+  const c3 = colorful[Math.floor(colorful.length * 0.7)] || [green, blue, red];
+
+  return {
+    auraKey: pickAuraFromColors({ brightness, warmth, saturation, contrast, red, green, blue, colorSpread }),
+    colors: [
+      rgbToHex(c1[0] * 1.14, c1[1] * 1.14, c1[2] * 1.14),
+      rgbToHex(c2[0] * 1.22, c2[1] * 1.22, c2[2] * 1.22),
+      rgbToHex(c3[0] * 1.28, c3[1] * 1.28, c3[2] * 1.28)
+    ]
+  };
+}
+
+function getLiveCameraAuraLabel(auraKey = "neonNightlife") {
+  const labels = {
+    grungeNoir: "Ghost signal",
+    neonNightlife: "Neon pulse",
+    warmDreamscape: "Warm bloom",
+    editorialLuxury: "Mirror mode",
+    stormPressure: "Storm field"
+  };
+
+  return labels[auraKey] || "Aura field";
+}
+
 function AuraSphere({ colors, image, onClick, loading = false }) {
   const gradientStyle = {
     "--aura-a": readableAccent(colors[0]),
@@ -1358,21 +1410,37 @@ const auraRuntimeCss = `
   }
 
 
-
-  .aura-ai-chip {
-    border: 1px solid rgba(255,255,255,.12);
-    background: linear-gradient(135deg, rgba(255,255,255,.095), rgba(255,255,255,.028));
-    backdrop-filter: blur(18px) saturate(1.25);
-    -webkit-backdrop-filter: blur(18px) saturate(1.25);
+  .aura-live-camera {
+    background:
+      radial-gradient(circle at 20% 12%, color-mix(in srgb, var(--aura-a) 26%, transparent), transparent 35%),
+      radial-gradient(circle at 82% 20%, color-mix(in srgb, var(--aura-b) 24%, transparent), transparent 38%),
+      linear-gradient(180deg, rgba(2,3,4,.94), rgba(2,3,4,.84));
   }
 
-  .aura-share-card {
-    border: 1px solid rgba(255,255,255,.18);
-    background:
-      radial-gradient(circle at 14% 0%, color-mix(in srgb, var(--aura-a) 32%, transparent), transparent 36%),
-      radial-gradient(circle at 86% 22%, color-mix(in srgb, var(--aura-c) 28%, transparent), transparent 40%),
-      linear-gradient(145deg, rgba(255,255,255,.13), rgba(255,255,255,.035)),
-      rgba(2,3,4,.82);
+  .aura-camera-reticle {
+    border: 1px solid rgba(255,255,255,.26);
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,.04) inset,
+      0 0 46px color-mix(in srgb, var(--aura-b) 34%, transparent);
+  }
+
+  .aura-camera-reticle::before,
+  .aura-camera-reticle::after {
+    content: "";
+    position: absolute;
+    inset: 14%;
+    border-radius: inherit;
+    border: 1px solid rgba(255,255,255,.08);
+  }
+
+  .aura-camera-reticle::after {
+    inset: 30%;
+    border-color: color-mix(in srgb, var(--aura-a) 40%, transparent);
+  }
+
+  .aura-scan-line {
+    background: linear-gradient(90deg, transparent, var(--aura-a), var(--aura-b), var(--aura-c), transparent);
+    box-shadow: 0 0 34px var(--aura-b);
   }
 
   @supports not (color: color-mix(in srgb, red, transparent)) {
@@ -1391,65 +1459,13 @@ const auraRuntimeCss = `
 `;
 
 
-
-function imageSrcToDataUrl(imageSrc) {
-  return fetch(imageSrc)
-    .then((res) => res.blob())
-    .then((blob) =>
-      new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result);
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      })
-    );
-}
-
-async function analyzeAuraWithAI(imageSrc, colorMood) {
-  try {
-    const imageDataUrl = await imageSrcToDataUrl(imageSrc);
-    const res = await fetch("/api/analyze-aura", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ imageDataUrl, colorMood })
-    });
-
-    if (!res.ok) throw new Error(`AI aura failed: ${res.status}`);
-    return await res.json();
-  } catch (error) {
-    console.warn("AI aura fallback used", error);
-    return null;
-  }
-}
-
-function mergeAiAuraResult(baseResult, aiMood) {
-  if (!baseResult || !aiMood) return baseResult;
-
-  return {
-    ...baseResult,
-    aura: aiMood.auraName || baseResult.aura,
-    mood: aiMood.moodLine || baseResult.mood,
-    aiMood,
-    aiVibe: aiMood.vibe || "visual aura",
-    aiEmotion: aiMood.emotion || "atmospheric",
-    aiScene: aiMood.scene || "cinematic moment",
-    aiStyle: aiMood.style || "aesthetic mood",
-    aiLighting: aiMood.lighting || "mixed lighting",
-    aiEnergy: aiMood.energy || "medium",
-    aiReason: aiMood.reason || baseResult.reason,
-    visualTags: Array.isArray(aiMood.visualTags) ? aiMood.visualTags : [],
-    musicKeywords: Array.isArray(aiMood.musicKeywords) ? aiMood.musicKeywords : [],
-    cinematicLine: aiMood.cinematicLine || "A visual mood translated into sound.",
-    compatibilityLine: aiMood.compatibilityLine || COMPATIBILITY_LINES[baseResult.auraKey],
-    reason: aiMood.reason || baseResult.reason
-  };
-}
-
 export default function App() {
   const fileInputRef = useRef(null);
   const cameraInputRef = useRef(null);
+  const liveVideoRef = useRef(null);
   const audioRef = useRef(null);
   const fadeTimerRef = useRef(null);
+  const liveCameraStreamRef = useRef(null);
 
   const [image, setImage] = useState(null);
   const [fileName, setFileName] = useState("");
@@ -1463,6 +1479,13 @@ export default function App() {
   const [unlockResult, setUnlockResult] = useState(null);
   const [audioReactive, setAudioReactive] = useState(false);
   const [immersiveMode, setImmersiveMode] = useState(false);
+  const [liveCameraOpen, setLiveCameraOpen] = useState(false);
+  const [liveCameraError, setLiveCameraError] = useState("");
+  const [liveAura, setLiveAura] = useState({
+    auraKey: "neonNightlife",
+    colors: ["6d5dfc", "19d8ff", "ff3df2"]
+  });
+  const [liveCapturing, setLiveCapturing] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(() => !window.localStorage.getItem("aura_seen_onboarding"));
   const [auraHistory, setAuraHistory] = useState(() => {
     try {
@@ -1472,11 +1495,8 @@ export default function App() {
     }
   });
 
-  const [loadingPhraseIndex, setLoadingPhraseIndex] = useState(0);
-  const [shareStatus, setShareStatus] = useState("");
-
-  const colors = result?.colors || unlockResult?.colors || imageColors;
-  const environment = AURA_ENVIRONMENTS[result?.auraKey || unlockResult?.auraKey || "grungeNoir"];
+  const colors = liveCameraOpen ? liveAura.colors : (result?.colors || unlockResult?.colors || imageColors);
+  const environment = AURA_ENVIRONMENTS[(liveCameraOpen ? liveAura.auraKey : (result?.auraKey || unlockResult?.auraKey)) || "grungeNoir"];
 
   const gradientStyle = useMemo(() => ({
     "--aura-a": readableAccent(colors[0]),
@@ -1485,18 +1505,62 @@ export default function App() {
   }), [colors]);
 
 
+
   useEffect(() => {
-    if (!loading) {
-      setLoadingPhraseIndex(0);
-      return;
+    if (!liveCameraOpen) return;
+
+    let cancelled = false;
+    let scanTimer = null;
+
+    async function openLiveCamera() {
+      try {
+        setLiveCameraError("");
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1280 },
+            height: { ideal: 1920 }
+          },
+          audio: false
+        });
+
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        liveCameraStreamRef.current = stream;
+
+        if (liveVideoRef.current) {
+          liveVideoRef.current.srcObject = stream;
+          await liveVideoRef.current.play();
+        }
+
+        scanTimer = window.setInterval(() => {
+          const video = liveVideoRef.current;
+          if (!video || video.readyState < 2) return;
+
+          const nextMood = scanVideoMood(video);
+          setLiveAura(nextMood);
+          setImageColors(nextMood.colors);
+        }, 700);
+      } catch (error) {
+        console.warn("Live camera failed", error);
+        setLiveCameraError("Camera access was blocked. Check browser permissions or use Upload instead.");
+      }
     }
 
-    const timer = window.setInterval(() => {
-      setLoadingPhraseIndex((prev) => (prev + 1) % LOADING_PHRASES.length);
-    }, 1150);
+    openLiveCamera();
 
-    return () => window.clearInterval(timer);
-  }, [loading]);
+    return () => {
+      cancelled = true;
+      if (scanTimer) window.clearInterval(scanTimer);
+      if (liveCameraStreamRef.current) {
+        liveCameraStreamRef.current.getTracks().forEach((track) => track.stop());
+        liveCameraStreamRef.current = null;
+      }
+    };
+  }, [liveCameraOpen]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -1551,7 +1615,6 @@ export default function App() {
     setUnlockResult(null);
     setPlaying(false);
     setPreviewError("");
-    setShareStatus("");
 
     extractImageMood(imageUrl).then(({ colors }) => {
       setImageColors(colors);
@@ -1569,17 +1632,12 @@ export default function App() {
     setUnlockResult(null);
     setPlaying(false);
     setPreviewError("");
-    setShareStatus("");
     setUnlocking(true);
 
-    const localMood = await extractImageMood(image);
-    setImageColors(localMood.colors);
+    const mood = await extractImageMood(image);
+    setImageColors(mood.colors);
 
-    const aiMood = await analyzeAuraWithAI(image, localMood);
-    const finalAuraKey = aiMood?.auraKey || localMood.auraKey;
-
-    const builtBase = await buildFreshAuraResult(finalAuraKey, localMood.colors);
-    const built = mergeAiAuraResult(builtBase, aiMood);
+    const built = await buildFreshAuraResult(mood.auraKey, mood.colors);
 
     window.setTimeout(() => {
       setLoading(false);
@@ -1607,6 +1665,75 @@ export default function App() {
     window.setTimeout(() => setUnlocking(false), 1250);
   }
 
+
+  function openLiveCameraMode() {
+    setLiveCameraOpen(true);
+    setLiveCameraError("");
+    setResult(null);
+    setUnlockResult(null);
+    setPlaying(false);
+    setPreviewError("");
+    fadeOutAndPause();
+  }
+
+  function closeLiveCameraMode() {
+    setLiveCameraOpen(false);
+    setLiveCameraError("");
+    setLiveCapturing(false);
+
+    if (liveCameraStreamRef.current) {
+      liveCameraStreamRef.current.getTracks().forEach((track) => track.stop());
+      liveCameraStreamRef.current = null;
+    }
+  }
+
+  async function captureLiveAura() {
+    const video = liveVideoRef.current;
+
+    if (!video || !video.videoWidth || !video.videoHeight) {
+      setLiveCameraError("Camera is still warming up. Try again in a second.");
+      return;
+    }
+
+    setLiveCapturing(true);
+    setLoading(true);
+    setResult(null);
+    setUnlockResult(null);
+    setPlaying(false);
+    setPreviewError("");
+    setUnlocking(true);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    const frame = canvas.toDataURL("image/jpeg", 0.92);
+    const mood = scanVideoMood(video);
+
+    setImage(frame);
+    setFileName("Live camera aura");
+    setImageColors(mood.colors);
+    closeLiveCameraMode();
+
+    const built = await buildFreshAuraResult(mood.auraKey, mood.colors);
+
+    window.setTimeout(() => {
+      setLoading(false);
+      setUnlocking(false);
+      setUnlockResult(built);
+      setLiveCapturing(false);
+    }, 950);
+
+    window.setTimeout(() => {
+      setResult(built);
+      setUnlockResult(null);
+      setUnlocking(true);
+      window.setTimeout(() => setUnlocking(false), 780);
+    }, 3650);
+  }
+
   function resetApp() {
     setImage(null);
     setFileName("");
@@ -1615,6 +1742,9 @@ export default function App() {
     setUnlockResult(null);
     setPlaying(false);
     setPreviewError("");
+    setLiveCameraOpen(false);
+    setLiveCameraError("");
+    setLiveCapturing(false);
     fadeOutAndPause();
     setImageColors(["6d5dfc", "19d8ff", "ff3df2"]);
   }
@@ -1732,99 +1862,6 @@ export default function App() {
     }, 42);
   }
 
-  async function createAuraCardBlob() {
-    if (!result) return null;
-
-    const canvas = document.createElement("canvas");
-    canvas.width = 1080;
-    canvas.height = 1620;
-    const ctx = canvas.getContext("2d");
-
-    const gradient = ctx.createLinearGradient(0, 0, 1080, 1620);
-    gradient.addColorStop(0, readableAccent(colors[0]));
-    gradient.addColorStop(0.5, "#050607");
-    gradient.addColorStop(1, readableAccent(colors[2]));
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "rgba(0,0,0,.38)";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    async function drawImageSafe(src, x, y, w, h, radius = 42) {
-      if (!src) return false;
-      try {
-        const img = await new Promise((resolve, reject) => {
-          const imageEl = new Image();
-          imageEl.crossOrigin = "anonymous";
-          imageEl.onload = () => resolve(imageEl);
-          imageEl.onerror = reject;
-          imageEl.src = src;
-        });
-        ctx.save();
-        ctx.beginPath();
-        if (ctx.roundRect) ctx.roundRect(x, y, w, h, radius);
-        else ctx.rect(x, y, w, h);
-        ctx.clip();
-        const ratio = Math.max(w / img.width, h / img.height);
-        const nw = img.width * ratio;
-        const nh = img.height * ratio;
-        ctx.drawImage(img, x + (w - nw) / 2, y + (h - nh) / 2, nw, nh);
-        ctx.restore();
-        return true;
-      } catch {
-        return false;
-      }
-    }
-
-    await drawImageSafe(image, 80, 110, 920, 900, 70);
-    ctx.fillStyle = "rgba(0,0,0,.46)";
-    ctx.fillRect(80, 760, 920, 250);
-    await drawImageSafe(result.albumArt, 80, 1070, 230, 230, 38);
-
-    ctx.fillStyle = "white";
-    ctx.font = "900 58px Arial";
-    ctx.fillText(safeText(result.aura), 80, 1048);
-    ctx.font = "700 42px Arial";
-    ctx.fillText(safeText(result.song), 340, 1140);
-    ctx.font = "400 30px Arial";
-    ctx.fillStyle = "rgba(255,255,255,.72)";
-    ctx.fillText(safeText(result.artist), 340, 1190);
-    ctx.font = "400 30px Arial";
-    const line = safeText(result.cinematicLine || result.aiReason || result.reason);
-    ctx.fillText(line.slice(0, 48), 80, 1360);
-    ctx.fillText(line.slice(48, 96), 80, 1402);
-    ctx.font = "700 24px Arial";
-    ctx.fillStyle = "rgba(255,255,255,.5)";
-    ctx.fillText("AURA · photo to music", 80, 1510);
-
-    return new Promise((resolve) => canvas.toBlob(resolve, "image/png", 0.94));
-  }
-
-  async function saveAuraCard() {
-    const blob = await createAuraCardBlob();
-    if (!blob) return;
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `aura-${Date.now()}.png`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-    setShareStatus("Aura card saved.");
-  }
-
-  async function shareAuraCard() {
-    const blob = await createAuraCardBlob();
-    if (!blob) return;
-    const file = new File([blob], "aura-card.png", { type: "image/png" });
-    if (navigator.canShare?.({ files: [file] })) {
-      await navigator.share({ title: "My Aura", text: `${result.aura} · ${result.song} by ${result.artist}`, files: [file] });
-      setShareStatus("Aura shared.");
-    } else {
-      await saveAuraCard();
-    }
-  }
-
   async function togglePreview() {
     const audio = audioRef.current;
 
@@ -1930,6 +1967,106 @@ export default function App() {
                 Start reading
               </button>
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+
+      <AnimatePresence>
+        {liveCameraOpen && (
+          <motion.div
+            className="aura-live-camera fixed inset-0 z-[95] overflow-hidden text-white"
+            style={gradientStyle}
+            initial={{ opacity: 0, scale: 1.02 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 1.02 }}
+            transition={{ duration: 0.48, ease: IOS_EASE }}
+          >
+            <video
+              ref={liveVideoRef}
+              className="absolute inset-0 h-full w-full object-cover"
+              autoPlay
+              playsInline
+              muted
+            />
+            <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,.22),rgba(0,0,0,.1)_42%,rgba(0,0,0,.78))]" />
+            <motion.div
+              className="aura-color-bloom pointer-events-none absolute inset-[-20%]"
+              animate={{ opacity: [0.32, 0.7, 0.32], scale: [1, 1.08, 1] }}
+              transition={{ duration: 4.6, repeat: Infinity, ease: "easeInOut" }}
+            />
+
+            <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-md flex-col justify-between px-5 py-6">
+              <header className="flex items-center justify-between">
+                <div className="ios-glass rounded-full px-4 py-2">
+                  <p className="text-[10px] uppercase tracking-[0.3em] text-white/42">live aura</p>
+                  <p className="text-sm font-semibold text-white/78">{getLiveCameraAuraLabel(liveAura.auraKey)}</p>
+                </div>
+
+                <button
+                  onClick={closeLiveCameraMode}
+                  className="ios-glass rounded-full px-4 py-2 text-sm font-semibold text-white/70"
+                >
+                  Close
+                </button>
+              </header>
+
+              <div className="flex flex-1 items-center justify-center">
+                <motion.div
+                  className="aura-camera-reticle relative h-72 w-72 rounded-full"
+                  animate={{
+                    scale: [1, 1.035, 1],
+                    rotate: [0, 2, 0, -2, 0]
+                  }}
+                  transition={{ duration: 5.4, repeat: Infinity, ease: "easeInOut" }}
+                >
+                  <motion.div
+                    className="aura-scan-line absolute left-[-20%] right-[-20%] top-1/2 h-px rounded-full"
+                    animate={{ y: [-118, 118, -118], opacity: [0.22, 1, 0.22] }}
+                    transition={{ duration: 2.7, repeat: Infinity, ease: "easeInOut" }}
+                  />
+                  <div className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/80 shadow-[0_0_24px_var(--aura-b)]" />
+                </motion.div>
+              </div>
+
+              <div>
+                {liveCameraError && (
+                  <p className="ios-glass mb-3 rounded-2xl px-4 py-3 text-center text-xs text-white/68">
+                    {liveCameraError}
+                  </p>
+                )}
+
+                <div className="ios-glass mb-3 rounded-[2rem] p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-[0.32em] text-white/35">scanning</p>
+                      <h2 className="mt-1 text-3xl font-black tracking-[-0.07em]">{getLiveCameraAuraLabel(liveAura.auraKey)}</h2>
+                    </div>
+                    <div className="flex gap-1.5">
+                      {liveAura.colors.map((color, index) => (
+                        <span
+                          key={`${color}-${index}`}
+                          className="h-8 w-8 rounded-full border border-white/15 shadow-[0_0_24px_var(--aura-b)]"
+                          style={{ background: readableAccent(color) }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  <p className="mt-3 text-sm leading-relaxed text-white/48">
+                    Move your camera around. Aura reads the live color, contrast, light, and energy field before locking the music match.
+                  </p>
+                </div>
+
+                <button
+                  onClick={captureLiveAura}
+                  disabled={liveCapturing || loading}
+                  className="flex w-full items-center justify-center gap-2 rounded-3xl bg-[linear-gradient(90deg,var(--aura-a),var(--aura-b),var(--aura-c))] px-5 py-4 text-sm font-black text-black shadow-[0_0_54px_var(--aura-b)] transition active:scale-[0.985] disabled:opacity-60"
+                >
+                  <Sparkles size={18} />
+                  {liveCapturing ? "Capturing aura..." : "Capture Live Aura"}
+                </button>
+              </div>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -2161,8 +2298,8 @@ export default function App() {
                 <AuraSphere colors={colors} onClick={() => fileInputRef.current?.click()} loading={audioReactive} />
 
                 <div className="grid w-full grid-cols-2 gap-3">
-                  <button onClick={() => cameraInputRef.current?.click()} className="ios-glass flex items-center justify-center gap-2 rounded-3xl px-4 py-4 text-sm font-semibold text-white/84 transition duration-500 ease-out hover:scale-[1.015] active:scale-[0.985]">
-                    <Camera size={17} /> Camera
+                  <button onClick={openLiveCameraMode} className="ios-glass flex items-center justify-center gap-2 rounded-3xl px-4 py-4 text-sm font-semibold text-white/84 transition duration-500 ease-out hover:scale-[1.015] active:scale-[0.985]">
+                    <Camera size={17} /> Live Camera
                   </button>
                   <button onClick={() => fileInputRef.current?.click()} className="ios-glass flex items-center justify-center gap-2 rounded-3xl px-4 py-4 text-sm font-semibold text-white/84 transition duration-500 ease-out hover:scale-[1.015] active:scale-[0.985]">
                     <ImagePlus size={17} /> Library
@@ -2186,7 +2323,7 @@ export default function App() {
               <motion.div key="loading" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }} className="flex flex-col items-center">
                 <AuraSphere colors={colors} image={image} onClick={() => {}} loading />
                 <h3 className="text-3xl font-semibold tracking-[-0.06em]">Listening to the image</h3>
-                <p className="mt-2 text-sm text-white/42">{LOADING_PHRASES[loadingPhraseIndex]}</p>
+                <p className="mt-2 text-sm text-white/42">reading color, light, mood, and energy...</p>
               </motion.div>
             )}
 
@@ -2216,19 +2353,6 @@ export default function App() {
                   <p className="text-xs uppercase tracking-[0.32em] text-white/35">your aura</p>
                   <h2 className={`aura-result-title aura-type-glow mt-1 text-4xl ${auraTypographyClass(result.auraKey)}`}>{result.aura}</h2>
                   <p className="mt-2 text-sm text-white/58">{result.mood}</p>
-                  {result.aiMood && (
-                    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="aura-share-card mt-4 rounded-[1.6rem] p-4">
-                      <div className="mb-3 flex items-center gap-2 text-xs uppercase tracking-[0.24em] text-white/38">
-                        <Wand2 size={14} /> AI Aura Brain
-                      </div>
-                      <p className="text-sm leading-relaxed text-white/66">{result.cinematicLine || result.aiReason}</p>
-                      <div className="mt-3 grid grid-cols-2 gap-2">
-                        {[result.aiEmotion, result.aiScene, result.aiStyle, result.aiLighting].filter(Boolean).slice(0, 4).map((tag) => (
-                          <span key={tag} className="aura-ai-chip rounded-2xl px-3 py-2 text-xs text-white/58">{tag}</span>
-                        ))}
-                      </div>
-                    </motion.div>
-                  )}
                   <div className="mt-3 h-1.5 w-full rounded-full bg-[linear-gradient(90deg,var(--aura-a),var(--aura-b),var(--aura-c))] shadow-[0_0_28px_var(--aura-b)]" />
                   <div className="mt-2 flex gap-1.5">
                     <span className="h-1.5 w-1.5 rounded-full bg-[var(--aura-a)] opacity-80" />
@@ -2248,28 +2372,6 @@ export default function App() {
                   </div>
 
                   <p className="mt-3 text-sm leading-relaxed text-white/58">{getAuraDescription(result)}</p>
-
-                  {result?.aiMood && (
-                    <div className="ios-glass mt-4 rounded-[1.7rem] p-4 text-left">
-                      <p className="text-[10px] uppercase tracking-[0.28em] text-white/32">AI aura brain</p>
-                      <p className="mt-2 text-sm leading-relaxed text-white/62">{result.aiReason}</p>
-                      <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-white/48">
-                        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">{result.aiEmotion}</span>
-                        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">{result.aiScene}</span>
-                        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">{result.aiStyle}</span>
-                        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">{result.aiLighting}</span>
-                      </div>
-                      {!!result.visualTags?.length && (
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {result.visualTags.slice(0, 5).map((tag) => (
-                            <span key={tag} className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-white/48">
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
 
                   <button onClick={togglePreview} className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-[linear-gradient(90deg,var(--aura-a),var(--aura-b),var(--aura-c))] px-4 py-3.5 text-sm font-black text-black shadow-[0_0_42px_color-mix(in_srgb,var(--aura-b)_45%,transparent)] transition duration-500 ease-out hover:scale-[1.015] active:scale-[0.985]">
                     {playing ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}

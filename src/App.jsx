@@ -1807,59 +1807,41 @@ export default function App() {
 
   async function playPreviewUrl(previewUrl) {
     const audio = audioRef.current;
-    if (!audio) throw new Error("Audio element not ready");
+
+    if (!audio || !previewUrl) {
+      setPreviewError("Preview unavailable.");
+      return;
+    }
 
     clearFadeTimer();
 
-    audio.pause();
-    audio.removeAttribute("crossorigin");
-    audio.src = previewUrl;
-    audio.preload = "auto";
-    audio.currentTime = 0;
-    audio.volume = 0;
-    audio.load();
+    try {
+      setPreviewLoading(true);
+      setPreviewError("");
 
-    await new Promise((resolve, reject) => {
-      let settled = false;
+      // Mobile Safari/Chrome require play() to happen directly from the tap.
+      audio.pause();
+      audio.currentTime = 0;
+      audio.playsInline = true;
+      audio.preload = "auto";
+      audio.src = previewUrl;
+      audio.volume = 1;
+      audio.load();
 
-      const cleanup = () => {
-        audio.removeEventListener("canplay", onReady);
-        audio.removeEventListener("canplaythrough", onReady);
-        audio.removeEventListener("error", onError);
-      };
+      const playPromise = audio.play();
+      if (playPromise !== undefined) await playPromise;
 
-      const done = (callback) => {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        callback();
-      };
-
-      const onReady = () => done(resolve);
-      const onError = () => done(() => reject(new Error("Audio source failed")));
-
-      audio.addEventListener("canplay", onReady);
-      audio.addEventListener("canplaythrough", onReady);
-      audio.addEventListener("error", onError);
-
-      window.setTimeout(() => {
-        if (audio.readyState >= 2) done(resolve);
-      }, 1600);
-    });
-
-    await audio.play();
-    setPlaying(true);
-    setAudioReactive(true);
-
-    fadeTimerRef.current = window.setInterval(() => {
-      const nextVolume = Math.min(1, audio.volume + 0.038);
-      audio.volume = nextVolume;
-
-      if (nextVolume >= 0.98) {
-        audio.volume = 1;
-        clearFadeTimer();
-      }
-    }, 42);
+      setPlaying(true);
+      setAudioReactive(true);
+      setPreviewError("");
+    } catch (error) {
+      console.warn("Mobile playback failed", error);
+      setPlaying(false);
+      setAudioReactive(false);
+      setPreviewError("Mobile blocked the preview. Tap play again.");
+    } finally {
+      setPreviewLoading(false);
+    }
   }
 
   async function togglePreview() {
@@ -1881,7 +1863,9 @@ export default function App() {
     try {
       let previewUrl = result.previewUrl;
 
-      if (!previewUrl || !(await isPlayableAudioUrl(previewUrl))) {
+      // On mobile, do not pre-check the audio URL before play().
+      // The play call needs to stay as close to the user's tap as possible.
+      if (!previewUrl) {
         previewUrl = await getFreshPreviewUrl(result);
       }
 
@@ -2390,9 +2374,9 @@ export default function App() {
 
                   <audio
                     ref={audioRef}
-                    src={result.previewUrl || ""}
-                    preload="auto"
+                    preload="none"
                     playsInline
+                    crossOrigin="anonymous"
                     onEnded={() => {
                       clearFadeTimer();
                       setPlaying(false);

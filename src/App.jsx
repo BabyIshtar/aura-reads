@@ -1930,7 +1930,6 @@ unlockMobileAudio();
       audio.currentTime = 0;
       audio.playsInline = true;
       audio.preload = "auto";
-      audio.crossOrigin = "anonymous";
       audio.src = previewUrl;
 
       if (autoStarted) {
@@ -1952,12 +1951,8 @@ unlockMobileAudio();
 
       if (autoStarted) {
         window.setTimeout(() => {
-          try {
-            audio.muted = false;
-            audio.volume = 1;
-          } catch {
-            // ignore
-          }
+          audio.muted = false;
+          audio.volume = 1;
         }, 220);
       }
 

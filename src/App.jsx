@@ -1592,6 +1592,15 @@ export default function App() {
   useEffect(() => {
     if (!result) return;
 
+    useEffect(() => {
+  if (result?.previewUrl) {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        playPreviewUrl(result.previewUrl, true);
+      });
+    });
+  }
+}, [result]);
     const entry = {
       id: `${result.song}-${result.artist}-${Date.now()}`,
       aura: result.aura,
@@ -1608,8 +1617,6 @@ export default function App() {
       return next;
     });
   }, [result?.song, result?.artist]);
-
-
   async function unlockMobileAudio() {
     const audio = audioRef.current;
     if (!audio) return;
@@ -1624,8 +1631,6 @@ export default function App() {
       audio.loop = true;
       audio.playsInline = true;
       audio.preload = "auto";
-
-      // Tiny silent audio keeps the user-initiated audio session alive.
       audio.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=";
       audio.load();
 
@@ -1658,9 +1663,12 @@ export default function App() {
     }
 
     
+    
     autoPlayAfterMatchRef.current = true;
     unlockMobileAudio();
-setLoading(true);
+unlockMobileAudio();
+
+    setLoading(true);
     setResult(null);
     setUnlockResult(null);
     setPlaying(false);
@@ -1683,13 +1691,6 @@ setLoading(true);
       setUnlockResult(null);
       setUnlocking(true);
       window.setTimeout(() => setUnlocking(false), 780);
-
-      if (autoPlayAfterMatchRef.current && built?.previewUrl) {
-        autoPlayAfterMatchRef.current = false;
-        window.setTimeout(() => {
-          playPreviewUrl(built.previewUrl, true);
-        }, 220);
-      }
 
       // Auto-play the first aura match after the reveal.
       // This is armed by the user's Read Aura tap and backed by mobile audio priming.
@@ -1744,7 +1745,7 @@ setLoading(true);
       return;
     }
 
-    autoPlayAfterMatchRef.current = true;
+    
     unlockMobileAudio();
 
     setLiveCapturing(true);
@@ -1877,7 +1878,6 @@ setLoading(true);
       audio.load();
 
       if (autoStarted) {
-        // Start muted first so desktop/mobile browsers are more likely to allow playback.
         audio.muted = true;
         audio.volume = 0;
       } else {
@@ -1890,111 +1890,23 @@ setLoading(true);
 
       setPlaying(true);
       setAudioReactive(true);
+      setPreviewError("");
 
       if (autoStarted) {
         window.setTimeout(() => {
-          try {
-            audio.muted = false;
-            let volume = 0;
-            audio.volume = 0;
-
-            const fade = window.setInterval(() => {
-              volume = Math.min(1, volume + 0.1);
-              audio.volume = volume;
-
-              if (volume >= 1) {
-                window.clearInterval(fade);
-              }
-            }, 45);
-          } catch {
-            audio.muted = false;
-            audio.volume = 1;
-          }
-        }, 150);
+          audio.muted = false;
+          audio.volume = 1;
+        }, 180);
       }
     } catch (error) {
       console.warn("Playback failed", error);
       setPlaying(false);
       setAudioReactive(false);
-      // No visible error box. Manual play button remains available.
+      setPreviewError("");
     } finally {
       setPreviewLoading(false);
     }
   }
-
-  clearFadeTimer();
-
-  try {
-    setPreviewLoading(true);
-    setPreviewError("");
-
-    // Reset audio
-    audio.pause();
-    audio.currentTime = 0;
-
-    // Core setup
-    audio.src = previewUrl;
-    audio.preload = "auto";
-    audio.playsInline = true;
-
-    // IMPORTANT:
-    // Browsers allow autoplay easier when muted first
-    if (autoStarted) {
-      audio.muted = true;
-      audio.volume = 0;
-    } else {
-      audio.muted = false;
-      audio.volume = 1;
-    }
-
-    audio.load();
-
-    // Start playback
-    const playPromise = audio.play();
-
-    if (playPromise !== undefined) {
-      await playPromise;
-    }
-
-    // Fade audio in after autoplay starts
-    if (autoStarted) {
-      setTimeout(() => {
-        audio.muted = false;
-
-        let vol = 0;
-        audio.volume = 0;
-
-        const fade = setInterval(() => {
-          vol += 0.08;
-
-          if (vol >= 1) {
-            audio.volume = 1;
-            clearInterval(fade);
-          } else {
-            audio.volume = vol;
-          }
-        }, 45);
-      }, 180);
-    }
-
-    setPlaying(true);
-    setAudioReactive(true);
-    setPreviewError("");
-  } catch (error) {
-    console.warn("Playback failed", error);
-
-    setPlaying(false);
-    setAudioReactive(false);
-
-    setPreviewError(
-      autoStarted
-        ? ""
-        : ""
-    );
-  } finally {
-    setPreviewLoading(false);
-  }
-}
 
   async function togglePreview() {
     const audio = audioRef.current;
@@ -2481,7 +2393,8 @@ setLoading(true);
                       </motion.span>
                       <span className="absolute inset-0 rounded-2xl ring-1 ring-white/0 transition group-hover:ring-white/30" />
                     </button>
-                    
+                    <div className="absolute bottom-0 left-0 right-0 h-1 bg-[linear-gradient(90deg,var(--aura-a),var(--aura-b),var(--aura-c))]" />
+                  </div>
                 </div>
 
                 <div className="aura-result-card rounded-[2rem] p-5 text-left shadow-xl shadow-black/40">
@@ -2520,14 +2433,22 @@ setLoading(true);
                   </a>
 
                   <audio
-        ref={audioRef}
-        playsInline
-        preload="auto"
-        onEnded={() => {
-          setPlaying(false);
-          setAudioReactive(false);
-        }}
-      />
+                    ref={audioRef}
+                    preload="none"
+                    playsInline
+                    crossOrigin="anonymous"
+                    onEnded={() => {
+                      clearFadeTimer();
+                      setPlaying(false);
+                      setAudioReactive(false);
+                    }}
+                    onPause={() => { setPlaying(false); setAudioReactive(false); }}
+                    onPlay={() => setPlaying(true)}
+                    onError={() => {
+                      setPlaying(false);
+                      if (result?.previewUrl) setPreviewError("Preview could not load from the music source. Tap Similar Track or Open song search.");
+                    }}
+                  />
                 </div>
 
                 <div className="mt-3 grid grid-cols-2 gap-3">

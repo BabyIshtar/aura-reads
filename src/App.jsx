@@ -1466,6 +1466,27 @@ function shouldAttemptAutoplay() {
   return true;
 }
 
+function safeLocalStorageGet(key, fallback = null) {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return fallback;
+    return window.localStorage.getItem(key) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function safeLocalStorageSet(key, value) {
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      window.localStorage.setItem(key, value);
+    }
+  } catch {
+    // Private browsing / storage permissions can throw on mobile.
+  }
+}
+
+const SILENT_AUDIO_SRC = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=";
+
 export default function App() {
   const fileInputRef = useRef(null);
   const cameraInputRef = useRef(null);
@@ -1475,6 +1496,10 @@ export default function App() {
   const autoPlayAfterMatchRef = useRef(false);
   const lastAutoPlayedPreviewRef = useRef("");
   const liveCameraStreamRef = useRef(null);
+  const playbackRequestRef = useRef(0);
+  const audioUnlockedRef = useRef(false);
+  const revealTimerRef = useRef(null);
+  const finalRevealTimerRef = useRef(null);
 
   const [image, setImage] = useState(null);
   const [fileName, setFileName] = useState("");
@@ -1495,10 +1520,10 @@ export default function App() {
     colors: ["6d5dfc", "19d8ff", "ff3df2"]
   });
   const [liveCapturing, setLiveCapturing] = useState(false);
-  const [showOnboarding, setShowOnboarding] = useState(() => !window.localStorage.getItem("aura_seen_onboarding"));
+  const [showOnboarding, setShowOnboarding] = useState(() => !safeLocalStorageGet("aura_seen_onboarding"));
   const [auraHistory, setAuraHistory] = useState(() => {
     try {
-      return JSON.parse(window.localStorage.getItem("aura_history") || "[]");
+      return JSON.parse(safeLocalStorageGet("aura_history", "[]") || "[]");
     } catch {
       return [];
     }
@@ -1574,19 +1599,23 @@ export default function App() {
   useEffect(() => {
     const audio = audioRef.current;
     clearFadeTimer();
+    playbackRequestRef.current += 1;
     setPlaying(false);
     setPreviewError("");
     setPreviewLoading(false);
+    setAudioReactive(false);
 
     if (!audio) return;
 
     audio.pause();
     audio.currentTime = 0;
     audio.volume = 1;
+    audio.muted = false;
+    audio.loop = false;
+    audio.preload = "auto";
 
     if (result?.previewUrl) {
       audio.src = result.previewUrl;
-      audio.preload = "auto";
       audio.load();
     } else {
       audio.removeAttribute("src");
@@ -1608,43 +1637,56 @@ const entry = {
 
     setAuraHistory((prev) => {
       const next = [entry, ...prev].slice(0, 8);
-      window.localStorage.setItem("aura_history", JSON.stringify(next));
+      safeLocalStorageSet("aura_history", JSON.stringify(next));
       return next;
     });
   }, [result?.song, result?.artist]);
   async function unlockMobileAudio() {
     const audio = audioRef.current;
-    if (!audio) return;
+    if (!audio) return false;
 
     try {
       clearFadeTimer();
-
       audio.pause();
-      audio.currentTime = 0;
-      audio.loop = false;
+      audio.loop = true;
       audio.muted = true;
       audio.volume = 0;
       audio.playsInline = true;
       audio.preload = "auto";
 
-      // A tiny silent WAV primes the audio element during the user's tap.
-      audio.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=";
-      audio.load();
+      if (audio.src !== SILENT_AUDIO_SRC) {
+        audio.src = SILENT_AUDIO_SRC;
+        audio.load();
+      }
 
       const prime = audio.play();
       if (prime !== undefined) await prime.catch(() => {});
-
-      audio.pause();
-      audio.currentTime = 0;
-      audio.loop = false;
-      audio.muted = false;
-      audio.volume = 1;
+      audioUnlockedRef.current = true;
+      return true;
     } catch (error) {
       console.warn("Audio prime skipped", error);
-      audio.muted = false;
-      audio.volume = 1;
-      audio.loop = false;
+      audioUnlockedRef.current = false;
+      return false;
     }
+  }
+
+  function scheduleAutoPlay(built, delay = 260) {
+    if (!built?.previewUrl || !autoPlayAfterMatchRef.current || !shouldAttemptAutoplay()) return;
+    if (lastAutoPlayedPreviewRef.current === built.previewUrl) return;
+
+    autoPlayAfterMatchRef.current = false;
+    lastAutoPlayedPreviewRef.current = built.previewUrl;
+
+    window.setTimeout(() => {
+      playPreviewUrl(built.previewUrl, true);
+    }, delay);
+  }
+
+  function clearRevealTimers() {
+    if (revealTimerRef.current) window.clearTimeout(revealTimerRef.current);
+    if (finalRevealTimerRef.current) window.clearTimeout(finalRevealTimerRef.current);
+    revealTimerRef.current = null;
+    finalRevealTimerRef.current = null;
   }
 
   function handleFile(file) {
@@ -1668,76 +1710,45 @@ const entry = {
       return;
     }
 
-    
-    
-    
+    clearRevealTimers();
     autoPlayAfterMatchRef.current = true;
-    unlockMobileAudio();
-unlockMobileAudio();
+    lastAutoPlayedPreviewRef.current = "";
+    await unlockMobileAudio();
 
     setLoading(true);
     setResult(null);
     setUnlockResult(null);
     setPlaying(false);
     setPreviewError("");
+    setAudioReactive(false);
     setUnlocking(true);
 
-    const mood = await extractImageMood(image);
-    setImageColors(mood.colors);
+    try {
+      const mood = await extractImageMood(image);
+      setImageColors(mood.colors);
 
-    const built = await buildFreshAuraResult(mood.auraKey, mood.colors);
+      const built = await buildFreshAuraResult(mood.auraKey, mood.colors);
 
-    window.setTimeout(() => {
+      revealTimerRef.current = window.setTimeout(() => {
+        setLoading(false);
+        setUnlocking(false);
+        setUnlockResult(built);
+      }, 950);
+
+      finalRevealTimerRef.current = window.setTimeout(() => {
+        setResult(built);
+        setUnlockResult(null);
+        setUnlocking(true);
+        window.setTimeout(() => setUnlocking(false), 780);
+        scheduleAutoPlay(built, 240);
+      }, 3650);
+    } catch (error) {
+      console.warn("Aura analysis failed", error);
       setLoading(false);
       setUnlocking(false);
-      setUnlockResult(built);
-    }, 950);
-
-    window.setTimeout(() => {
-      setResult(built);
-      setUnlockResult(null);
-      setUnlocking(true);
-      window.setTimeout(() => setUnlocking(false), 780);
-
-      if (
-        autoPlayAfterMatchRef.current &&
-        built?.previewUrl &&
-        lastAutoPlayedPreviewRef.current !== built.previewUrl &&
-        shouldAttemptAutoplay()
-      ) {
-        autoPlayAfterMatchRef.current = false;
-        lastAutoPlayedPreviewRef.current = built.previewUrl;
-        window.setTimeout(() => {
-          playPreviewUrl(built.previewUrl, true);
-        }, 260);
-      }
-
-      if (autoPlayAfterMatchRef.current && built?.previewUrl && lastAutoPlayedPreviewRef.current !== built.previewUrl) {
-        autoPlayAfterMatchRef.current = false;
-        lastAutoPlayedPreviewRef.current = built.previewUrl;
-        window.setTimeout(() => {
-          playPreviewUrl(built.previewUrl, true);
-        }, 260);
-      }
-
-      if (autoPlayAfterMatchRef.current && built?.previewUrl && lastAutoPlayedPreviewRef.current !== built.previewUrl) {
-        autoPlayAfterMatchRef.current = false;
-        lastAutoPlayedPreviewRef.current = built.previewUrl;
-        window.setTimeout(() => {
-          playPreviewUrl(built.previewUrl, true);
-        }, 260);
-      }
-
-      // Auto-play the first aura match after the reveal.
-      // This is armed by the user's Read Aura tap and backed by mobile audio priming.
-      if (autoPlayAfterMatchRef.current && built?.previewUrl && lastAutoPlayedPreviewRef.current !== built.previewUrl) {
-        autoPlayAfterMatchRef.current = false;
-        lastAutoPlayedPreviewRef.current = built.previewUrl;
-        window.setTimeout(() => {
-          playPreviewUrl(built.previewUrl, true);
-        }, 260);
-      }
-    }, 3650);
+      setPreviewError("Aura had trouble reading this image. Try another photo.");
+      autoPlayAfterMatchRef.current = false;
+    }
   }
 
   async function tryAnotherSong() {
@@ -1782,11 +1793,10 @@ unlockMobileAudio();
       return;
     }
 
-    
-    
+    clearRevealTimers();
     autoPlayAfterMatchRef.current = true;
-    unlockMobileAudio();
-unlockMobileAudio();
+    lastAutoPlayedPreviewRef.current = "";
+    await unlockMobileAudio();
 
     setLiveCapturing(true);
     setLoading(true);
@@ -1794,53 +1804,55 @@ unlockMobileAudio();
     setUnlockResult(null);
     setPlaying(false);
     setPreviewError("");
+    setAudioReactive(false);
     setUnlocking(true);
 
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext("2d");
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    const frame = canvas.toDataURL("image/jpeg", 0.92);
-    const mood = scanVideoMood(video);
+      const frame = canvas.toDataURL("image/jpeg", 0.92);
+      const mood = scanVideoMood(video);
 
-    setImage(frame);
-    setFileName("Live camera aura");
-    setImageColors(mood.colors);
-    closeLiveCameraMode();
+      setImage(frame);
+      setFileName("Live camera aura");
+      setImageColors(mood.colors);
+      closeLiveCameraMode();
 
-    const built = await buildFreshAuraResult(mood.auraKey, mood.colors);
+      const built = await buildFreshAuraResult(mood.auraKey, mood.colors);
 
-    window.setTimeout(() => {
+      revealTimerRef.current = window.setTimeout(() => {
+        setLoading(false);
+        setUnlocking(false);
+        setUnlockResult(built);
+        setLiveCapturing(false);
+      }, 950);
+
+      finalRevealTimerRef.current = window.setTimeout(() => {
+        setResult(built);
+        setUnlockResult(null);
+        setUnlocking(true);
+        window.setTimeout(() => setUnlocking(false), 780);
+        scheduleAutoPlay(built, 240);
+      }, 3650);
+    } catch (error) {
+      console.warn("Live aura capture failed", error);
       setLoading(false);
       setUnlocking(false);
-      setUnlockResult(built);
       setLiveCapturing(false);
-    }, 950);
-
-    window.setTimeout(() => {
-      setResult(built);
-      setUnlockResult(null);
-      setUnlocking(true);
-      window.setTimeout(() => setUnlocking(false), 780);
-
-      if (
-        autoPlayAfterMatchRef.current &&
-        built?.previewUrl &&
-        lastAutoPlayedPreviewRef.current !== built.previewUrl &&
-        shouldAttemptAutoplay()
-      ) {
-        autoPlayAfterMatchRef.current = false;
-        lastAutoPlayedPreviewRef.current = built.previewUrl;
-        window.setTimeout(() => {
-          playPreviewUrl(built.previewUrl, true);
-        }, 260);
-      }
-    }, 3650);
+      setLiveCameraError("Aura had trouble reading the camera frame. Try again.");
+      autoPlayAfterMatchRef.current = false;
+    }
   }
 
   function resetApp() {
+    clearRevealTimers();
+    playbackRequestRef.current += 1;
+    autoPlayAfterMatchRef.current = false;
+    lastAutoPlayedPreviewRef.current = "";
     setImage(null);
     setFileName("");
     setLoading(false);
@@ -1913,9 +1925,9 @@ unlockMobileAudio();
 
   async function playPreviewUrl(previewUrl, autoStarted = false) {
     const audio = audioRef.current;
-
     if (!audio || !previewUrl) return false;
 
+    const requestId = ++playbackRequestRef.current;
     clearFadeTimer();
 
     try {
@@ -1923,27 +1935,26 @@ unlockMobileAudio();
       setPreviewError("");
 
       audio.pause();
-      audio.removeAttribute("src");
-      audio.load();
-
       audio.loop = false;
       audio.currentTime = 0;
       audio.playsInline = true;
       audio.preload = "auto";
-      audio.src = previewUrl;
+      audio.crossOrigin = "anonymous";
 
-      if (autoStarted) {
-        audio.muted = true;
-        audio.volume = 0;
-      } else {
-        audio.muted = false;
-        audio.volume = 1;
+      if (audio.src !== previewUrl) {
+        audio.src = previewUrl;
+        audio.load();
       }
 
-      audio.load();
+      // Mobile Safari/Chrome allow muted playback more reliably after the user's Aura tap.
+      // Manual button taps stay audible immediately.
+      audio.muted = !!autoStarted;
+      audio.volume = autoStarted ? 0 : 1;
 
       const playPromise = audio.play();
       if (playPromise !== undefined) await playPromise;
+
+      if (requestId !== playbackRequestRef.current) return false;
 
       setPlaying(true);
       setAudioReactive(true);
@@ -1951,20 +1962,23 @@ unlockMobileAudio();
 
       if (autoStarted) {
         window.setTimeout(() => {
+          if (requestId !== playbackRequestRef.current) return;
           audio.muted = false;
           audio.volume = 1;
-        }, 220);
+        }, 180);
       }
 
       return true;
     } catch (error) {
       console.warn("Preview playback failed", error);
-      setPlaying(false);
-      setAudioReactive(false);
-      setPreviewError("");
+      if (requestId === playbackRequestRef.current) {
+        setPlaying(false);
+        setAudioReactive(false);
+        setPreviewError(autoStarted ? "Tap play to start the preview." : "Preview could not play. Try Similar Track.");
+      }
       return false;
     } finally {
-      setPreviewLoading(false);
+      if (requestId === playbackRequestRef.current) setPreviewLoading(false);
     }
   }
 
@@ -1976,7 +1990,8 @@ unlockMobileAudio();
     clearFadeTimer();
     setPreviewError("");
 
-    if (playing && !audio.paused) {
+    if (!audio.paused && !audio.ended) {
+      playbackRequestRef.current += 1;
       audio.pause();
       setPlaying(false);
       setAudioReactive(false);
@@ -1990,16 +2005,44 @@ unlockMobileAudio();
         previewUrl = await getFreshPreviewUrl(result);
       }
 
-      if (!previewUrl) return;
+      if (!previewUrl) {
+        setPreviewError("No playable preview found for this match. Try Similar Track.");
+        return;
+      }
 
       await playPreviewUrl(previewUrl, false);
     } catch (error) {
       console.warn("Preview playback failed", error);
       setPlaying(false);
       setAudioReactive(false);
-      setPreviewError("");
+      setPreviewError("Preview could not play. Try Similar Track.");
     }
   }
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const handlePlay = () => {
+      setPlaying(true);
+      setAudioReactive(true);
+    };
+    const handlePause = () => {
+      setPlaying(false);
+      setAudioReactive(false);
+    };
+
+    audio.addEventListener("play", handlePlay);
+    audio.addEventListener("pause", handlePause);
+
+    return () => {
+      audio.removeEventListener("play", handlePlay);
+      audio.removeEventListener("pause", handlePause);
+      clearRevealTimers();
+      clearFadeTimer();
+      audio.pause();
+    };
+  }, []);
 
 
   return (
@@ -2488,14 +2531,28 @@ unlockMobileAudio();
                   </a>
 
                   <audio
-        ref={audioRef}
-        playsInline
-        preload="auto"
-        onEnded={() => {
-          setPlaying(false);
-          setAudioReactive(false);
-        }}
-      />
+                    ref={audioRef}
+                    playsInline
+                    preload="auto"
+                    onCanPlay={() => setPreviewLoading(false)}
+                    onPlay={() => {
+                      setPlaying(true);
+                      setAudioReactive(true);
+                    }}
+                    onPause={() => {
+                      setPlaying(false);
+                      setAudioReactive(false);
+                    }}
+                    onEnded={() => {
+                      setPlaying(false);
+                      setAudioReactive(false);
+                    }}
+                    onError={() => {
+                      setPlaying(false);
+                      setAudioReactive(false);
+                      setPreviewLoading(false);
+                    }}
+                  />
                 </div>
 
                 <div className="mt-3 grid grid-cols-2 gap-3">

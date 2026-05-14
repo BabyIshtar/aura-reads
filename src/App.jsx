@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Camera, ImagePlus, Music, RefreshCw, Sparkles, ExternalLink, Play, Pause } from "lucide-react";
+import { Camera, ImagePlus, Music, RefreshCw, Sparkles, ExternalLink, Play, Pause, Share2, Download, Flame, BarChart3 } from "lucide-react";
 
 const AURA_PROFILES = {
   grungeNoir: {
@@ -191,6 +191,160 @@ function generatedAlbumArt(song, artist, colors) {
     <text x='64' y='715' font-family='Arial,sans-serif' font-size='30' font-weight='500' fill='rgba(255,255,255,.65)'>${safeArtist}</text>
   </svg>`;
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+
+function todayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function getStoredJson(key, fallback) {
+  try {
+    return JSON.parse(window.localStorage.getItem(key) || JSON.stringify(fallback));
+  } catch {
+    return fallback;
+  }
+}
+
+function buildDailyAura(colors = ["6d5dfc", "19d8ff", "ff3df2"]) {
+  const key = todayKey();
+  const stored = getStoredJson("aura_daily", null);
+  if (stored?.key === key) return stored;
+
+  const daySeed = key.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  const profileKey = PROFILE_ORDER[daySeed % PROFILE_ORDER.length];
+  const profile = AURA_PROFILES[profileKey];
+  const song = profile.songs[daySeed % profile.songs.length];
+  const daily = {
+    key,
+    profileKey,
+    aura: profile.auraNames[daySeed % profile.auraNames.length],
+    mood: profile.mood,
+    song: song[0],
+    artist: song[1],
+    colors: colors?.length >= 3 ? colors : profile.colorFallback
+  };
+  window.localStorage.setItem("aura_daily", JSON.stringify(daily));
+  return daily;
+}
+
+function updateAuraStreak() {
+  const key = todayKey();
+  const streak = getStoredJson("aura_streak", { count: 0, lastKey: "" });
+  if (streak.lastKey === key) return streak;
+
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const next = {
+    count: streak.lastKey === yesterday ? streak.count + 1 : 1,
+    lastKey: key
+  };
+  window.localStorage.setItem("aura_streak", JSON.stringify(next));
+  return next;
+}
+
+async function createAuraShareImage(result, colors, sourceImage) {
+  if (!result) return null;
+
+  const canvas = document.createElement("canvas");
+  const width = 1080;
+  const height = 1920;
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+
+  const gradient = ctx.createLinearGradient(0, 0, width, height);
+  gradient.addColorStop(0, `#${colors[0] || "6d5dfc"}`);
+  gradient.addColorStop(0.52, `#${colors[1] || "19d8ff"}`);
+  gradient.addColorStop(1, `#${colors[2] || "ff3df2"}`);
+  ctx.fillStyle = "#050607";
+  ctx.fillRect(0, 0, width, height);
+  ctx.globalAlpha = 0.82;
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, width, height);
+  ctx.globalAlpha = 1;
+
+  const drawImageCover = async (url, x, y, w, h, radius = 60, alpha = 1) => {
+    if (!url) return false;
+    try {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = url;
+      });
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.beginPath();
+      ctx.roundRect(x, y, w, h, radius);
+      ctx.clip();
+      const scale = Math.max(w / img.width, h / img.height);
+      const sw = img.width * scale;
+      const sh = img.height * scale;
+      ctx.drawImage(img, x + (w - sw) / 2, y + (h - sh) / 2, sw, sh);
+      ctx.restore();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  await drawImageCover(sourceImage, 70, 140, 940, 1010, 72, 0.92);
+
+  const fade = ctx.createLinearGradient(0, 900, 0, 1500);
+  fade.addColorStop(0, "rgba(5,6,7,0)");
+  fade.addColorStop(0.55, "rgba(5,6,7,.74)");
+  fade.addColorStop(1, "rgba(5,6,7,.96)");
+  ctx.fillStyle = fade;
+  ctx.fillRect(0, 760, width, 520);
+
+  await drawImageCover(result.albumArt, 72, 1210, 230, 230, 44, 1);
+
+  ctx.fillStyle = "rgba(255,255,255,.58)";
+  ctx.font = "700 34px Arial";
+  ctx.letterSpacing = "9px";
+  ctx.fillText("YOUR AURA", 72, 112);
+
+  ctx.fillStyle = "white";
+  ctx.font = "900 96px Arial";
+  wrapCanvasText(ctx, result.aura || "Aura", 72, 1330, 920, 92);
+
+  ctx.fillStyle = "rgba(255,255,255,.68)";
+  ctx.font = "500 38px Arial";
+  ctx.fillText(result.mood || "cinematic · visual · music", 72, 1512);
+
+  ctx.fillStyle = "white";
+  ctx.font = "900 54px Arial";
+  wrapCanvasText(ctx, result.song || "Song Match", 330, 1280, 650, 58);
+  ctx.fillStyle = "rgba(255,255,255,.62)";
+  ctx.font = "500 36px Arial";
+  ctx.fillText(result.artist || "Aura", 330, 1425);
+
+  ctx.fillStyle = "rgba(255,255,255,.42)";
+  ctx.font = "500 30px Arial";
+  wrapCanvasText(ctx, result.reason || getAuraDescription(result), 72, 1616, 920, 42);
+
+  ctx.fillStyle = "rgba(255,255,255,.78)";
+  ctx.font = "800 32px Arial";
+  ctx.fillText("made with AURA", 72, 1840);
+
+  return new Promise((resolve) => canvas.toBlob(resolve, "image/png", 0.94));
+}
+
+function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight) {
+  const words = String(text || "").split(" ");
+  let line = "";
+  for (const word of words) {
+    const test = `${line}${word} `;
+    if (ctx.measureText(test).width > maxWidth && line) {
+      ctx.fillText(line, x, y);
+      line = `${word} `;
+      y += lineHeight;
+    } else {
+      line = test;
+    }
+  }
+  ctx.fillText(line, x, y);
 }
 
 async function fetchJson(url, options = {}) {
@@ -1108,6 +1262,27 @@ const auraRuntimeCss = `
     box-shadow: 0 32px 120px rgba(0,0,0,.72);
   }
 
+
+  .aura-stat-card {
+    border: 1px solid rgba(255,255,255,.12);
+    background:
+      radial-gradient(circle at 20% 0%, color-mix(in srgb, var(--aura-a) 18%, transparent), transparent 34%),
+      linear-gradient(145deg, rgba(255,255,255,.08), rgba(255,255,255,.024)),
+      rgba(3,4,6,.54);
+    backdrop-filter: blur(24px) saturate(1.22);
+    -webkit-backdrop-filter: blur(24px) saturate(1.22);
+  }
+
+  .aura-enter-card {
+    border: 1px solid rgba(255,255,255,.18);
+    background:
+      radial-gradient(circle at 22% 0%, color-mix(in srgb, var(--aura-a) 34%, transparent), transparent 36%),
+      radial-gradient(circle at 84% 18%, color-mix(in srgb, var(--aura-c) 26%, transparent), transparent 42%),
+      linear-gradient(145deg, rgba(255,255,255,.12), rgba(255,255,255,.032)),
+      rgba(2,3,4,.76);
+    box-shadow: 0 32px 120px rgba(0,0,0,.68), inset 0 1px 0 rgba(255,255,255,.18);
+  }
+
   @supports not (color: color-mix(in srgb, red, transparent)) {
     .aura-sphere-wrap {
       filter: drop-shadow(0 0 34px var(--aura-a)) drop-shadow(0 22px 56px rgba(0,0,0,.5));
@@ -1143,6 +1318,10 @@ export default function App() {
   const [audioReactive, setAudioReactive] = useState(false);
   const [immersiveMode, setImmersiveMode] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(() => !window.localStorage.getItem("aura_seen_onboarding"));
+  const [showEnter, setShowEnter] = useState(() => !window.localStorage.getItem("aura_entered"));
+  const [dailyAura, setDailyAura] = useState(() => buildDailyAura());
+  const [streak, setStreak] = useState(() => getStoredJson("aura_streak", { count: 0, lastKey: "" }));
+  const [shareStatus, setShareStatus] = useState("");
   const [auraHistory, setAuraHistory] = useState(() => {
     try {
       return JSON.parse(window.localStorage.getItem("aura_history") || "[]");
@@ -1159,6 +1338,16 @@ export default function App() {
     "--aura-b": readableAccent(colors[1]),
     "--aura-c": readableAccent(colors[2])
   }), [colors]);
+
+  const loadingPhrase = useMemo(() => {
+    const phrases = [
+      "reading color pressure...",
+      "matching the emotional temperature...",
+      "finding the sound inside the photo...",
+      "pulling the song from the image..."
+    ];
+    return phrases[Math.floor(Math.random() * phrases.length)];
+  }, [loading]);
 
 
   useEffect(() => {
@@ -1194,6 +1383,7 @@ export default function App() {
       artist: result.artist,
       albumArt: result.albumArt,
       colors: result.colors,
+      mood: result.mood,
       createdAt: new Date().toISOString()
     };
 
@@ -1202,6 +1392,8 @@ export default function App() {
       window.localStorage.setItem("aura_history", JSON.stringify(next));
       return next;
     });
+    setStreak(updateAuraStreak());
+    setDailyAura(buildDailyAura(result.colors));
   }, [result?.song, result?.artist]);
 
 
@@ -1426,9 +1618,91 @@ export default function App() {
   }
 
 
+  async function shareAuraResult() {
+    if (!result) return;
+    setShareStatus("Building your aura card...");
+    const shareText = `My aura is ${result.aura} — ${result.song} by ${result.artist}`;
+
+    try {
+      const blob = await createAuraShareImage(result, colors, image);
+      const file = blob ? new File([blob], "aura-card.png", { type: "image/png" }) : null;
+
+      if (navigator.canShare?.({ files: [file] }) && file) {
+        await navigator.share({ title: "Aura", text: shareText, files: [file] });
+      } else if (navigator.share) {
+        await navigator.share({ title: "Aura", text: shareText, url: window.location.href });
+      } else {
+        await navigator.clipboard?.writeText(`${shareText} ${window.location.href}`);
+      }
+      setShareStatus("Aura card ready to share.");
+    } catch (error) {
+      console.warn("Share failed", error);
+      setShareStatus("Share was cancelled or blocked by this browser.");
+    }
+  }
+
+  async function downloadAuraResult() {
+    if (!result) return;
+    setShareStatus("Saving your aura card...");
+    const blob = await createAuraShareImage(result, colors, image);
+    if (!blob) {
+      setShareStatus("Could not create the card on this device.");
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${result.aura || "aura"}-card.png`.replace(/[^a-z0-9.-]/gi, "-").toLowerCase();
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setShareStatus("Aura card saved.");
+  }
+
+
   return (
     <main style={gradientStyle} className="relative min-h-screen overflow-hidden bg-[#07080a] text-white">
       <style>{auraRuntimeCss}</style>
+
+
+      <AnimatePresence>
+        {showEnter && (
+          <motion.div
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-[#020304] px-5 text-center"
+            initial={{ opacity: 1 }}
+            exit={{ opacity: 0, scale: 1.02, filter: "blur(12px)" }}
+            transition={{ duration: 0.7, ease: CASCADE_EASE }}
+          >
+            <motion.div
+              className="aura-enter-card w-full max-w-sm rounded-[2.7rem] p-8"
+              initial={{ opacity: 0, y: 30, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ duration: 0.8, ease: CASCADE_EASE }}
+            >
+              <motion.div
+                className="mx-auto mb-7 grid h-32 w-32 place-items-center rounded-full bg-[conic-gradient(from_0deg,var(--aura-a),var(--aura-b),var(--aura-c),var(--aura-a))] shadow-[0_0_110px_var(--aura-b)]"
+                animate={{ rotate: [0, 360], scale: [1, 1.05, 1] }}
+                transition={{ rotate: { duration: 24, repeat: Infinity, ease: "linear" }, scale: { duration: 4.8, repeat: Infinity, ease: "easeInOut" } }}
+              >
+                <Music size={42} className="text-white drop-shadow-[0_0_20px_rgba(255,255,255,.75)]" />
+              </motion.div>
+              <p className="text-xs uppercase tracking-[0.44em] text-white/38">enter aura</p>
+              <h1 className="mt-4 text-6xl font-black leading-[0.86] tracking-[-0.1em]">Find the sound of your photo.</h1>
+              <p className="mx-auto mt-5 max-w-xs text-sm leading-relaxed text-white/50">A cinematic music reader for moments, color, light, and feeling.</p>
+              <button
+                onClick={() => {
+                  window.localStorage.setItem("aura_entered", "true");
+                  setShowEnter(false);
+                }}
+                className="mt-8 w-full rounded-3xl bg-[linear-gradient(90deg,var(--aura-a),var(--aura-b),var(--aura-c))] px-5 py-4 text-sm font-black text-black shadow-[0_0_54px_var(--aura-b)] transition active:scale-[0.985]"
+              >
+                Tap to enter
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <motion.div
         className="aura-gradient-mesh pointer-events-none fixed inset-0"
@@ -1712,6 +1986,37 @@ export default function App() {
           </button>
         </header>
 
+        <div className="mt-5 grid grid-cols-3 gap-2">
+          <div className="aura-stat-card rounded-[1.35rem] px-3 py-3 text-center">
+            <Flame size={15} className="mx-auto mb-1 text-white/62" />
+            <p className="text-lg font-black tracking-[-0.05em]">{streak.count || 0}</p>
+            <p className="text-[10px] uppercase tracking-[0.16em] text-white/34">streak</p>
+          </div>
+          <div className="aura-stat-card rounded-[1.35rem] px-3 py-3 text-center">
+            <BarChart3 size={15} className="mx-auto mb-1 text-white/62" />
+            <p className="text-lg font-black tracking-[-0.05em]">{auraHistory.length}</p>
+            <p className="text-[10px] uppercase tracking-[0.16em] text-white/34">reads</p>
+          </div>
+          <div className="aura-stat-card rounded-[1.35rem] px-3 py-3 text-center">
+            <Sparkles size={15} className="mx-auto mb-1 text-white/62" />
+            <p className="truncate text-sm font-black tracking-[-0.04em]">{dailyAura.aura}</p>
+            <p className="text-[10px] uppercase tracking-[0.16em] text-white/34">daily</p>
+          </div>
+        </div>
+
+        <div className="mt-3 aura-stat-card rounded-[1.6rem] p-4 text-left">
+          <p className="text-[10px] uppercase tracking-[0.28em] text-white/32">daily aura</p>
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="truncate text-lg font-black tracking-[-0.05em]">{dailyAura.song}</p>
+              <p className="truncate text-xs text-white/42">{dailyAura.artist} · {dailyAura.mood}</p>
+            </div>
+            <div className="flex shrink-0 gap-1">
+              {(dailyAura.colors || colors).slice(0, 3).map((color) => <span key={color} className="h-3 w-3 rounded-full" style={{ background: readableAccent(color) }} />)}
+            </div>
+          </div>
+        </div>
+
         <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
           <AnimatePresence mode="wait">
             {!image && !loading && !result && (
@@ -1750,7 +2055,7 @@ export default function App() {
               <motion.div key="loading" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }} className="flex flex-col items-center">
                 <AuraSphere colors={colors} image={image} onClick={() => {}} loading />
                 <h3 className="text-3xl font-semibold tracking-[-0.06em]">Listening to the image</h3>
-                <p className="mt-2 text-sm text-white/42">reading color, light, mood, and energy...</p>
+                <p className="mt-2 text-sm text-white/42">{loadingPhrase}</p>
               </motion.div>
             )}
 
@@ -1798,6 +2103,14 @@ export default function App() {
                     </div>
                   </div>
 
+                  {(result.releaseYear || result.genres?.length || result.popularity !== null) && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {result.releaseYear && <span className="ios-glass rounded-full px-3 py-1.5 text-[11px] text-white/58">{result.releaseYear}</span>}
+                      {result.popularity !== null && <span className="ios-glass rounded-full px-3 py-1.5 text-[11px] text-white/58">Spotify {result.popularity}%</span>}
+                      {result.genres?.slice(0, 2).map((genre) => <span key={genre} className="ios-glass rounded-full px-3 py-1.5 text-[11px] text-white/58">{genre}</span>)}
+                    </div>
+                  )}
+
                   <p className="mt-3 text-sm leading-relaxed text-white/58">{getAuraDescription(result)}</p>
 
                   <button onClick={togglePreview} className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-[linear-gradient(90deg,var(--aura-a),var(--aura-b),var(--aura-c))] px-4 py-3.5 text-sm font-black text-black shadow-[0_0_42px_color-mix(in_srgb,var(--aura-b)_45%,transparent)] transition duration-500 ease-out hover:scale-[1.015] active:scale-[0.985]">
@@ -1811,8 +2124,19 @@ export default function App() {
                     </p>
                   )}
 
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <button onClick={shareAuraResult} className="ios-glass flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-white/78 transition duration-500 ease-out hover:scale-[1.015] active:scale-[0.985]">
+                      <Share2 size={15} /> Share
+                    </button>
+                    <button onClick={downloadAuraResult} className="ios-glass flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-white/78 transition duration-500 ease-out hover:scale-[1.015] active:scale-[0.985]">
+                      <Download size={15} /> Save Card
+                    </button>
+                  </div>
+
+                  {shareStatus && <p className="mt-3 text-center text-xs text-white/38">{shareStatus}</p>}
+
                   <a href={result.spotifyUrl} target="_blank" rel="noreferrer" className="ios-glass mt-3 flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-white/78 transition duration-500 ease-out hover:scale-[1.015] active:scale-[0.985]">
-                    Open song search <ExternalLink size={15} />
+                    Open on Spotify <ExternalLink size={15} />
                   </a>
 
                   <audio
@@ -1859,7 +2183,7 @@ export default function App() {
           </div>
         )}
 
-        <footer className="pb-1 text-center text-[11px] text-white/28">Aura v0.6 · cinematic aura engine</footer>
+        <footer className="pb-1 text-center text-[11px] text-white/28">Aura v0.7 · social aura engine</footer>
       </section>
 
       <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={(event) => handleFile(event.target.files?.[0])} />

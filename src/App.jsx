@@ -352,36 +352,10 @@ async function fetchDeezerMedia(song, artist) {
   return {};
 }
 
-async function isPlayableAudioUrl(url) {
-  if (!url) return false;
-
-  return new Promise((resolve) => {
-    const audio = new Audio();
-    let settled = false;
-
-    const finish = (value) => {
-      if (settled) return;
-      settled = true;
-      audio.pause();
-      audio.removeAttribute("src");
-      resolve(value);
-    };
-
-    audio.preload = "auto";
-    audio.src = url;
-    audio.addEventListener("canplaythrough", () => finish(true), { once: true });
-    audio.addEventListener("canplay", () => finish(true), { once: true });
-    audio.addEventListener("error", () => finish(false), { once: true });
-
-    window.setTimeout(() => finish(audio.readyState >= 2), 3500);
-    audio.load();
-  });
-}
-
 async function fetchSongMedia(song, artist) {
   const spotifyMedia = await fetchSpotifyMedia(song, artist);
 
-  if (spotifyMedia?.previewUrl && await isPlayableAudioUrl(spotifyMedia.previewUrl)) {
+  if (spotifyMedia?.previewUrl) {
     return spotifyMedia;
   }
 
@@ -393,7 +367,7 @@ async function fetchSongMedia(song, artist) {
   for (const source of previewSources) {
     const previewMedia = await source();
 
-    if (previewMedia?.previewUrl && await isPlayableAudioUrl(previewMedia.previewUrl)) {
+    if (previewMedia?.previewUrl) {
       return {
         ...spotifyMedia,
         ...previewMedia,
@@ -522,7 +496,7 @@ async function fetchItunesDiscovery(auraKey) {
       const picked = randomItem(results.slice(0, Math.min(results.length, 35)));
       const previewUrl = picked.previewUrl?.replace("http://", "https://") || "";
 
-      if (previewUrl && !(await isPlayableAudioUrl(previewUrl))) continue;
+      
 
       return normalizeDiscoveryTrack({
         song: picked.trackName,
@@ -562,7 +536,7 @@ async function fetchDeezerDiscovery(auraKey) {
         const picked = randomItem(results.slice(0, Math.min(results.length, 35)));
         const previewUrl = picked.preview?.replace("http://", "https://") || "";
 
-        if (previewUrl && !(await isPlayableAudioUrl(previewUrl))) continue;
+        
 
         return normalizeDiscoveryTrack({
           song: picked.title,
@@ -1884,7 +1858,7 @@ export default function App() {
     const audio = audioRef.current;
 
     if (!audio || !previewUrl) {
-      setPreviewError("Preview unavailable.");
+      setPreviewError(".");
       return;
     }
 

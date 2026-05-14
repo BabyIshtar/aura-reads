@@ -476,15 +476,18 @@ function genreKeysFromText(value = "") {
 function trackGenreKeys(song = "", artist = "", metadata = {}) {
   const knownKey = normalizeTrackKey(song, artist).replace(/[().]/g, "").replace(/\s+/g, " ");
   const known = SONG_GENRE_KEYS[knownKey] || SONG_GENRE_KEYS[normalizeTrackKey(song, artist)];
-  const directKeys = [metadata.searchGenreKey, metadata.genreKey].filter((key) => GENRE_MATCHERS[key]);
-  const metadataText = [
-    metadata.primaryGenreName,
-    metadata.collectionName,
-    metadata.albumTitle,
-    ...(Array.isArray(metadata.genres) ? metadata.genres : [])
-  ].filter(Boolean).join(" ");
+  const sourceKeys = [metadata.searchGenreKey, metadata.genreKey].filter((key) => GENRE_MATCHERS[key]);
+  const primaryKeys = genreKeysFromText(metadata.primaryGenreName || "");
+  const spotifyGenreKeys = genreKeysFromText((Array.isArray(metadata.genres) ? metadata.genres : []).join(" "));
+  const albumKeys = genreKeysFromText([metadata.collectionName, metadata.albumTitle].filter(Boolean).join(" "));
 
-  return [...new Set([...(known || []), ...directKeys, ...genreKeysFromText(metadataText)])];
+  // IMPORTANT: sourceKeys are only a weak hint. A rap search can still return a pop song,
+  // so trusted provider metadata must override the search bucket instead of being combined with it.
+  if (primaryKeys.length) return [...new Set(primaryKeys)];
+  if (spotifyGenreKeys.length) return [...new Set(spotifyGenreKeys)];
+  if (known?.length) return [...new Set(known)];
+  if (albumKeys.length) return [...new Set(albumKeys)];
+  return [...new Set(sourceKeys)];
 }
 
 function genreAllowedForSettings(keys = [], settings = DEFAULT_GENRE_SETTINGS, strictUnknown = false) {

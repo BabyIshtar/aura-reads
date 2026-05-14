@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Camera, ImagePlus, Music, RefreshCw, Sparkles, ExternalLink, Play, Pause } from "lucide-react";
+import { Camera, ImagePlus, Music, RefreshCw, Sparkles, ExternalLink, Play, Pause, Share2, Download, Wand2, Heart, Users } from "lucide-react";
 
 const AURA_PROFILES = {
   grungeNoir: {
@@ -144,6 +144,35 @@ const AURA_ENVIRONMENTS = {
 const IOS_EASE = [0.22, 1, 0.36, 1];
 const SOFT_SPRING = { type: "spring", stiffness: 72, damping: 20, mass: 1.05 };
 const CASCADE_EASE = [0.16, 1, 0.3, 1];
+
+const LOADING_PHRASES = [
+  "reading the emotional temperature",
+  "scanning light, scene, and style",
+  "building your aura name",
+  "searching live music memories",
+  "matching your image to a frequency"
+];
+
+const COMPATIBILITY_LINES = {
+  grungeNoir: "You match with people who love late-night drives, cinematic shadows, and heavy emotional texture.",
+  neonNightlife: "You match with people who move fast, chase neon, and turn every moment into after-hours energy.",
+  warmDreamscape: "You match with soft-hearted people, golden memories, and warm nostalgic energy.",
+  editorialLuxury: "You match with clean taste, quiet confidence, and polished visual control.",
+  stormPressure: "You match with focused energy, calm intensity, and blue-toned emotional weight."
+};
+
+function auraCompatibilityScore(result) {
+  if (!result) return 0;
+  const seed = `${result.aura}-${result.song}-${result.artist}`;
+  let total = 0;
+  for (let i = 0; i < seed.length; i += 1) total += seed.charCodeAt(i) * (i + 3);
+  return 72 + (total % 27);
+}
+
+function safeText(value = "") {
+  return String(value).replace(/[<>]/g, "").slice(0, 180);
+}
+
 
 function clamp(value, min = 0, max = 255) {
   return Math.max(min, Math.min(max, value));
@@ -1328,6 +1357,24 @@ const auraRuntimeCss = `
     box-shadow: 0 32px 120px rgba(0,0,0,.72);
   }
 
+
+
+  .aura-ai-chip {
+    border: 1px solid rgba(255,255,255,.12);
+    background: linear-gradient(135deg, rgba(255,255,255,.095), rgba(255,255,255,.028));
+    backdrop-filter: blur(18px) saturate(1.25);
+    -webkit-backdrop-filter: blur(18px) saturate(1.25);
+  }
+
+  .aura-share-card {
+    border: 1px solid rgba(255,255,255,.18);
+    background:
+      radial-gradient(circle at 14% 0%, color-mix(in srgb, var(--aura-a) 32%, transparent), transparent 36%),
+      radial-gradient(circle at 86% 22%, color-mix(in srgb, var(--aura-c) 28%, transparent), transparent 40%),
+      linear-gradient(145deg, rgba(255,255,255,.13), rgba(255,255,255,.035)),
+      rgba(2,3,4,.82);
+  }
+
   @supports not (color: color-mix(in srgb, red, transparent)) {
     .aura-sphere-wrap {
       filter: drop-shadow(0 0 34px var(--aura-a)) drop-shadow(0 22px 56px rgba(0,0,0,.5));
@@ -1380,6 +1427,8 @@ function mergeAiAuraResult(baseResult, aiMood) {
 
   return {
     ...baseResult,
+    aura: aiMood.auraName || baseResult.aura,
+    mood: aiMood.moodLine || baseResult.mood,
     aiMood,
     aiVibe: aiMood.vibe || "visual aura",
     aiEmotion: aiMood.emotion || "atmospheric",
@@ -1390,6 +1439,8 @@ function mergeAiAuraResult(baseResult, aiMood) {
     aiReason: aiMood.reason || baseResult.reason,
     visualTags: Array.isArray(aiMood.visualTags) ? aiMood.visualTags : [],
     musicKeywords: Array.isArray(aiMood.musicKeywords) ? aiMood.musicKeywords : [],
+    cinematicLine: aiMood.cinematicLine || "A visual mood translated into sound.",
+    compatibilityLine: aiMood.compatibilityLine || COMPATIBILITY_LINES[baseResult.auraKey],
     reason: aiMood.reason || baseResult.reason
   };
 }
@@ -1421,6 +1472,9 @@ export default function App() {
     }
   });
 
+  const [loadingPhraseIndex, setLoadingPhraseIndex] = useState(0);
+  const [shareStatus, setShareStatus] = useState("");
+
   const colors = result?.colors || unlockResult?.colors || imageColors;
   const environment = AURA_ENVIRONMENTS[result?.auraKey || unlockResult?.auraKey || "grungeNoir"];
 
@@ -1430,6 +1484,19 @@ export default function App() {
     "--aura-c": readableAccent(colors[2])
   }), [colors]);
 
+
+  useEffect(() => {
+    if (!loading) {
+      setLoadingPhraseIndex(0);
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setLoadingPhraseIndex((prev) => (prev + 1) % LOADING_PHRASES.length);
+    }, 1150);
+
+    return () => window.clearInterval(timer);
+  }, [loading]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -1484,6 +1551,7 @@ export default function App() {
     setUnlockResult(null);
     setPlaying(false);
     setPreviewError("");
+    setShareStatus("");
 
     extractImageMood(imageUrl).then(({ colors }) => {
       setImageColors(colors);
@@ -1501,6 +1569,7 @@ export default function App() {
     setUnlockResult(null);
     setPlaying(false);
     setPreviewError("");
+    setShareStatus("");
     setUnlocking(true);
 
     const localMood = await extractImageMood(image);
@@ -1661,6 +1730,99 @@ export default function App() {
         clearFadeTimer();
       }
     }, 42);
+  }
+
+  async function createAuraCardBlob() {
+    if (!result) return null;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = 1080;
+    canvas.height = 1620;
+    const ctx = canvas.getContext("2d");
+
+    const gradient = ctx.createLinearGradient(0, 0, 1080, 1620);
+    gradient.addColorStop(0, readableAccent(colors[0]));
+    gradient.addColorStop(0.5, "#050607");
+    gradient.addColorStop(1, readableAccent(colors[2]));
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "rgba(0,0,0,.38)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    async function drawImageSafe(src, x, y, w, h, radius = 42) {
+      if (!src) return false;
+      try {
+        const img = await new Promise((resolve, reject) => {
+          const imageEl = new Image();
+          imageEl.crossOrigin = "anonymous";
+          imageEl.onload = () => resolve(imageEl);
+          imageEl.onerror = reject;
+          imageEl.src = src;
+        });
+        ctx.save();
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(x, y, w, h, radius);
+        else ctx.rect(x, y, w, h);
+        ctx.clip();
+        const ratio = Math.max(w / img.width, h / img.height);
+        const nw = img.width * ratio;
+        const nh = img.height * ratio;
+        ctx.drawImage(img, x + (w - nw) / 2, y + (h - nh) / 2, nw, nh);
+        ctx.restore();
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    await drawImageSafe(image, 80, 110, 920, 900, 70);
+    ctx.fillStyle = "rgba(0,0,0,.46)";
+    ctx.fillRect(80, 760, 920, 250);
+    await drawImageSafe(result.albumArt, 80, 1070, 230, 230, 38);
+
+    ctx.fillStyle = "white";
+    ctx.font = "900 58px Arial";
+    ctx.fillText(safeText(result.aura), 80, 1048);
+    ctx.font = "700 42px Arial";
+    ctx.fillText(safeText(result.song), 340, 1140);
+    ctx.font = "400 30px Arial";
+    ctx.fillStyle = "rgba(255,255,255,.72)";
+    ctx.fillText(safeText(result.artist), 340, 1190);
+    ctx.font = "400 30px Arial";
+    const line = safeText(result.cinematicLine || result.aiReason || result.reason);
+    ctx.fillText(line.slice(0, 48), 80, 1360);
+    ctx.fillText(line.slice(48, 96), 80, 1402);
+    ctx.font = "700 24px Arial";
+    ctx.fillStyle = "rgba(255,255,255,.5)";
+    ctx.fillText("AURA · photo to music", 80, 1510);
+
+    return new Promise((resolve) => canvas.toBlob(resolve, "image/png", 0.94));
+  }
+
+  async function saveAuraCard() {
+    const blob = await createAuraCardBlob();
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `aura-${Date.now()}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    setShareStatus("Aura card saved.");
+  }
+
+  async function shareAuraCard() {
+    const blob = await createAuraCardBlob();
+    if (!blob) return;
+    const file = new File([blob], "aura-card.png", { type: "image/png" });
+    if (navigator.canShare?.({ files: [file] })) {
+      await navigator.share({ title: "My Aura", text: `${result.aura} · ${result.song} by ${result.artist}`, files: [file] });
+      setShareStatus("Aura shared.");
+    } else {
+      await saveAuraCard();
+    }
   }
 
   async function togglePreview() {
@@ -2024,7 +2186,7 @@ export default function App() {
               <motion.div key="loading" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }} className="flex flex-col items-center">
                 <AuraSphere colors={colors} image={image} onClick={() => {}} loading />
                 <h3 className="text-3xl font-semibold tracking-[-0.06em]">Listening to the image</h3>
-                <p className="mt-2 text-sm text-white/42">reading color, light, mood, and energy...</p>
+                <p className="mt-2 text-sm text-white/42">{LOADING_PHRASES[loadingPhraseIndex]}</p>
               </motion.div>
             )}
 
@@ -2054,6 +2216,19 @@ export default function App() {
                   <p className="text-xs uppercase tracking-[0.32em] text-white/35">your aura</p>
                   <h2 className={`aura-result-title aura-type-glow mt-1 text-4xl ${auraTypographyClass(result.auraKey)}`}>{result.aura}</h2>
                   <p className="mt-2 text-sm text-white/58">{result.mood}</p>
+                  {result.aiMood && (
+                    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="aura-share-card mt-4 rounded-[1.6rem] p-4">
+                      <div className="mb-3 flex items-center gap-2 text-xs uppercase tracking-[0.24em] text-white/38">
+                        <Wand2 size={14} /> AI Aura Brain
+                      </div>
+                      <p className="text-sm leading-relaxed text-white/66">{result.cinematicLine || result.aiReason}</p>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        {[result.aiEmotion, result.aiScene, result.aiStyle, result.aiLighting].filter(Boolean).slice(0, 4).map((tag) => (
+                          <span key={tag} className="aura-ai-chip rounded-2xl px-3 py-2 text-xs text-white/58">{tag}</span>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
                   <div className="mt-3 h-1.5 w-full rounded-full bg-[linear-gradient(90deg,var(--aura-a),var(--aura-b),var(--aura-c))] shadow-[0_0_28px_var(--aura-b)]" />
                   <div className="mt-2 flex gap-1.5">
                     <span className="h-1.5 w-1.5 rounded-full bg-[var(--aura-a)] opacity-80" />

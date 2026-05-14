@@ -38,7 +38,7 @@ export default async function handler(req, res) {
             content: [
               {
                 type: "input_text",
-                text: `Local color engine result: ${JSON.stringify(colorMood || {})}\n\nChoose exactly one auraKey from: grungeNoir, neonNightlife, warmDreamscape, editorialLuxury, stormPressure. Also create music search seeds that would fit the image. Return JSON with this shape: {"auraKey":"...","confidence":0.0,"vibe":"...","emotion":"...","scene":"...","style":"...","lighting":"...","energy":"...","musicKeywords":["..."],"reason":"...","visualTags":["..."]}`
+                text: `Local color engine result: ${JSON.stringify(colorMood || {})}\n\nChoose exactly one auraKey from: grungeNoir, neonNightlife, warmDreamscape, editorialLuxury, stormPressure. Also create music search seeds that would fit the image. Return JSON with this shape: {"auraKey":"...","auraName":"two or three word original aura name","moodLine":"three adjectives separated by ·","confidence":0.0,"vibe":"...","emotion":"...","scene":"...","style":"...","lighting":"...","energy":"low|medium|high","cinematicLine":"one short poetic sentence about the image","compatibilityLine":"one short line describing who this aura matches with","musicKeywords":["..."],"reason":"...","visualTags":["..."]}`
               },
               {
                 type: "input_image",
@@ -75,7 +75,11 @@ export default async function handler(req, res) {
         energy: "medium",
         musicKeywords: ["cinematic", "moody", "atmospheric"],
         reason: text.slice(0, 500),
-        visualTags: []
+        visualTags: [],
+        auraName: "Signal Bloom",
+        moodLine: "cinematic · moody · visual",
+        cinematicLine: "A visual mood translated into sound.",
+        compatibilityLine: "You match with people who understand atmosphere before words."
       };
     }
 

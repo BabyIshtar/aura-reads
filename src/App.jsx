@@ -811,7 +811,7 @@ function scanVideoMood(video) {
   }
 
   const canvas = document.createElement("canvas");
-  const size = 72;
+  const size = 56;
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
@@ -961,7 +961,7 @@ function AuraSphere({ colors, image, onClick, loading = false }) {
 
 function AmbientParticles({ colors, active }) {
   const particles = useMemo(() =>
-    Array.from({ length: 14 }, (_, index) => ({
+    Array.from({ length: 10 }, (_, index) => ({
       id: index,
       left: 8 + Math.random() * 84,
       top: 10 + Math.random() * 78,
@@ -1443,6 +1443,34 @@ const auraRuntimeCss = `
     box-shadow: 0 0 34px var(--aura-b);
   }
 
+
+
+  .aura-gradient-mesh,
+  .aura-trail,
+  .aura-color-bloom,
+  .aura-live-camera video {
+    backface-visibility: hidden;
+    transform: translate3d(0,0,0);
+  }
+
+  @media (max-width: 480px) {
+    .aura-trail {
+      width: 6.5rem;
+      height: 6.5rem;
+      filter: blur(30px);
+      opacity: .18;
+    }
+
+    .aura-gradient-mesh {
+      filter: saturate(1.18);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .aura-plasma { animation-duration: 20s; }
+    .aura-trail { opacity: .12; }
+  }
+
   @supports not (color: color-mix(in srgb, red, transparent)) {
     .aura-sphere-wrap {
       filter: drop-shadow(0 0 34px var(--aura-a)) drop-shadow(0 22px 56px rgba(0,0,0,.5));
@@ -1465,6 +1493,7 @@ export default function App() {
   const liveVideoRef = useRef(null);
   const audioRef = useRef(null);
   const fadeTimerRef = useRef(null);
+  const autoPlayAfterMatchRef = useRef(false);
   const liveCameraStreamRef = useRef(null);
 
   const [image, setImage] = useState(null);
@@ -1543,7 +1572,7 @@ export default function App() {
           const nextMood = scanVideoMood(video);
           setLiveAura(nextMood);
           setImageColors(nextMood.colors);
-        }, 700);
+        }, 1050);
       } catch (error) {
         console.warn("Live camera failed", error);
         setLiveCameraError("Camera access was blocked. Check browser permissions or use Upload instead.");
@@ -1606,6 +1635,37 @@ export default function App() {
   }, [result?.song, result?.artist]);
 
 
+  async function unlockMobileAudio() {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    try {
+      clearFadeTimer();
+      // Prime mobile Safari/Chrome audio inside the user's Read Aura tap.
+      audio.pause();
+      audio.muted = true;
+      audio.volume = 0;
+      audio.playsInline = true;
+      audio.preload = "auto";
+      audio.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=";
+      audio.load();
+
+      const prime = audio.play();
+      if (prime !== undefined) await prime.catch(() => {});
+
+      audio.pause();
+      audio.currentTime = 0;
+      audio.muted = false;
+      audio.volume = 1;
+    } catch (error) {
+      console.warn("Audio prime skipped", error);
+      if (audio) {
+        audio.muted = false;
+        audio.volume = 1;
+      }
+    }
+  }
+
   function handleFile(file) {
     if (!file) return;
     const imageUrl = URL.createObjectURL(file);
@@ -1626,6 +1686,9 @@ export default function App() {
       fileInputRef.current?.click();
       return;
     }
+
+    autoPlayAfterMatchRef.current = true;
+    unlockMobileAudio();
 
     setLoading(true);
     setResult(null);
@@ -1650,6 +1713,15 @@ export default function App() {
       setUnlockResult(null);
       setUnlocking(true);
       window.setTimeout(() => setUnlocking(false), 780);
+
+      // Auto-play the first aura match after the reveal.
+      // This is armed by the user's Read Aura tap and backed by mobile audio priming.
+      if (autoPlayAfterMatchRef.current && built?.previewUrl) {
+        autoPlayAfterMatchRef.current = false;
+        window.setTimeout(() => {
+          playPreviewUrl(built.previewUrl, true);
+        }, 260);
+      }
     }, 3650);
   }
 
@@ -1694,6 +1766,9 @@ export default function App() {
       setLiveCameraError("Camera is still warming up. Try again in a second.");
       return;
     }
+
+    autoPlayAfterMatchRef.current = true;
+    unlockMobileAudio();
 
     setLiveCapturing(true);
     setLoading(true);
@@ -1805,7 +1880,7 @@ export default function App() {
     return "";
   }
 
-  async function playPreviewUrl(previewUrl) {
+  async function playPreviewUrl(previewUrl, autoStarted = false) {
     const audio = audioRef.current;
 
     if (!audio || !previewUrl) {
@@ -1838,7 +1913,7 @@ export default function App() {
       console.warn("Mobile playback failed", error);
       setPlaying(false);
       setAudioReactive(false);
-      setPreviewError("Mobile blocked the preview. Tap play again.");
+      setPreviewError(autoStarted ? "Auto-play was blocked on this phone. Tap play to start the preview." : "Mobile blocked the preview. Tap play again.");
     } finally {
       setPreviewLoading(false);
     }

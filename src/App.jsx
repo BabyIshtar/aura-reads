@@ -1344,6 +1344,56 @@ const auraRuntimeCss = `
 `;
 
 
+
+function imageSrcToDataUrl(imageSrc) {
+  return fetch(imageSrc)
+    .then((res) => res.blob())
+    .then((blob) =>
+      new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      })
+    );
+}
+
+async function analyzeAuraWithAI(imageSrc, colorMood) {
+  try {
+    const imageDataUrl = await imageSrcToDataUrl(imageSrc);
+    const res = await fetch("/api/analyze-aura", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ imageDataUrl, colorMood })
+    });
+
+    if (!res.ok) throw new Error(`AI aura failed: ${res.status}`);
+    return await res.json();
+  } catch (error) {
+    console.warn("AI aura fallback used", error);
+    return null;
+  }
+}
+
+function mergeAiAuraResult(baseResult, aiMood) {
+  if (!baseResult || !aiMood) return baseResult;
+
+  return {
+    ...baseResult,
+    aiMood,
+    aiVibe: aiMood.vibe || "visual aura",
+    aiEmotion: aiMood.emotion || "atmospheric",
+    aiScene: aiMood.scene || "cinematic moment",
+    aiStyle: aiMood.style || "aesthetic mood",
+    aiLighting: aiMood.lighting || "mixed lighting",
+    aiEnergy: aiMood.energy || "medium",
+    aiReason: aiMood.reason || baseResult.reason,
+    visualTags: Array.isArray(aiMood.visualTags) ? aiMood.visualTags : [],
+    musicKeywords: Array.isArray(aiMood.musicKeywords) ? aiMood.musicKeywords : [],
+    reason: aiMood.reason || baseResult.reason
+  };
+}
+
 export default function App() {
   const fileInputRef = useRef(null);
   const cameraInputRef = useRef(null);
@@ -1453,10 +1503,14 @@ export default function App() {
     setPreviewError("");
     setUnlocking(true);
 
-    const mood = await extractImageMood(image);
-    setImageColors(mood.colors);
+    const localMood = await extractImageMood(image);
+    setImageColors(localMood.colors);
 
-    const built = await buildFreshAuraResult(mood.auraKey, mood.colors);
+    const aiMood = await analyzeAuraWithAI(image, localMood);
+    const finalAuraKey = aiMood?.auraKey || localMood.auraKey;
+
+    const builtBase = await buildFreshAuraResult(finalAuraKey, localMood.colors);
+    const built = mergeAiAuraResult(builtBase, aiMood);
 
     window.setTimeout(() => {
       setLoading(false);
@@ -2019,6 +2073,28 @@ export default function App() {
                   </div>
 
                   <p className="mt-3 text-sm leading-relaxed text-white/58">{getAuraDescription(result)}</p>
+
+                  {result?.aiMood && (
+                    <div className="ios-glass mt-4 rounded-[1.7rem] p-4 text-left">
+                      <p className="text-[10px] uppercase tracking-[0.28em] text-white/32">AI aura brain</p>
+                      <p className="mt-2 text-sm leading-relaxed text-white/62">{result.aiReason}</p>
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-white/48">
+                        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">{result.aiEmotion}</span>
+                        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">{result.aiScene}</span>
+                        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">{result.aiStyle}</span>
+                        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">{result.aiLighting}</span>
+                      </div>
+                      {!!result.visualTags?.length && (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {result.visualTags.slice(0, 5).map((tag) => (
+                            <span key={tag} className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-white/48">
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   <button onClick={togglePreview} className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-[linear-gradient(90deg,var(--aura-a),var(--aura-b),var(--aura-c))] px-4 py-3.5 text-sm font-black text-black shadow-[0_0_42px_color-mix(in_srgb,var(--aura-b)_45%,transparent)] transition duration-500 ease-out hover:scale-[1.015] active:scale-[0.985]">
                     {playing ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}

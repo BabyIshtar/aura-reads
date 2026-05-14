@@ -352,10 +352,36 @@ async function fetchDeezerMedia(song, artist) {
   return {};
 }
 
+async function isPlayableAudioUrl(url) {
+  if (!url) return false;
+
+  return new Promise((resolve) => {
+    const audio = new Audio();
+    let settled = false;
+
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      audio.pause();
+      audio.removeAttribute("src");
+      resolve(value);
+    };
+
+    audio.preload = "auto";
+    audio.src = url;
+    audio.addEventListener("canplaythrough", () => finish(true), { once: true });
+    audio.addEventListener("canplay", () => finish(true), { once: true });
+    audio.addEventListener("error", () => finish(false), { once: true });
+
+    window.setTimeout(() => finish(audio.readyState >= 2), 3500);
+    audio.load();
+  });
+}
+
 async function fetchSongMedia(song, artist) {
   const spotifyMedia = await fetchSpotifyMedia(song, artist);
 
-  if (spotifyMedia?.previewUrl) {
+  if (spotifyMedia?.previewUrl && await isPlayableAudioUrl(spotifyMedia.previewUrl)) {
     return spotifyMedia;
   }
 
@@ -367,7 +393,7 @@ async function fetchSongMedia(song, artist) {
   for (const source of previewSources) {
     const previewMedia = await source();
 
-    if (previewMedia?.previewUrl) {
+    if (previewMedia?.previewUrl && await isPlayableAudioUrl(previewMedia.previewUrl)) {
       return {
         ...spotifyMedia,
         ...previewMedia,
@@ -496,7 +522,7 @@ async function fetchItunesDiscovery(auraKey) {
       const picked = randomItem(results.slice(0, Math.min(results.length, 35)));
       const previewUrl = picked.previewUrl?.replace("http://", "https://") || "";
 
-      
+      if (previewUrl && !(await isPlayableAudioUrl(previewUrl))) continue;
 
       return normalizeDiscoveryTrack({
         song: picked.trackName,
@@ -536,7 +562,7 @@ async function fetchDeezerDiscovery(auraKey) {
         const picked = randomItem(results.slice(0, Math.min(results.length, 35)));
         const previewUrl = picked.preview?.replace("http://", "https://") || "";
 
-        
+        if (previewUrl && !(await isPlayableAudioUrl(previewUrl))) continue;
 
         return normalizeDiscoveryTrack({
           song: picked.title,
@@ -1609,34 +1635,28 @@ export default function App() {
   }, [result?.song, result?.artist]);
 
 
-  async function unlockMobileAudio() {
+  async async function unlockMobileAudio() {
     const audio = audioRef.current;
     if (!audio) return;
 
     try {
       clearFadeTimer();
-      // Prime mobile Safari/Chrome audio inside the user's Read Aura tap.
+
       audio.pause();
+      audio.currentTime = 0;
+
       audio.muted = true;
       audio.volume = 0;
       audio.playsInline = true;
       audio.preload = "auto";
-      audio.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=";
-      audio.load();
 
-      const prime = audio.play();
-      if (prime !== undefined) await prime.catch(() => {});
+      // Keep audio session ACTIVE on iPhone
+      audio.src = "data:audio/mp3;base64,//uQxAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAACAAACcQCA";
+      await audio.play().catch(() => {});
 
-      audio.pause();
-      audio.currentTime = 0;
-      audio.muted = false;
-      audio.volume = 1;
+      // DO NOT pause here
     } catch (error) {
       console.warn("Audio prime skipped", error);
-      if (audio) {
-        audio.muted = false;
-        audio.volume = 1;
-      }
     }
   }
 
@@ -1857,10 +1877,7 @@ export default function App() {
   async function playPreviewUrl(previewUrl, autoStarted = false) {
     const audio = audioRef.current;
 
-    if (!audio || !previewUrl) {
-      setPreviewError(".");
-      return;
-    }
+    if (!audio || !previewUrl) return;
 
     clearFadeTimer();
 
@@ -1868,17 +1885,30 @@ export default function App() {
       setPreviewLoading(true);
       setPreviewError("");
 
-      // Mobile Safari/Chrome require play() to happen directly from the tap.
-      audio.pause();
-      audio.currentTime = 0;
       audio.playsInline = true;
       audio.preload = "auto";
+
+      // Keep active audio session alive for iPhone autoplay
+      const wasMuted = audio.muted;
+
       audio.src = previewUrl;
-      audio.volume = 1;
       audio.load();
 
-      const playPromise = audio.play();
-      if (playPromise !== undefined) await playPromise;
+      if (autoStarted) {
+        audio.muted = true;
+      } else {
+        audio.muted = false;
+        audio.volume = 1;
+      }
+
+      await audio.play();
+
+      if (autoStarted) {
+        setTimeout(() => {
+          audio.muted = false;
+          audio.volume = 1;
+        }, 120);
+      }
 
       setPlaying(true);
       setAudioReactive(true);
@@ -1887,7 +1917,6 @@ export default function App() {
       console.warn("Mobile playback failed", error);
       setPlaying(false);
       setAudioReactive(false);
-      setPreviewError(autoStarted ? "Auto-play was blocked on this phone. Tap play to start the preview." : "Mobile blocked the preview. Tap play again.");
     } finally {
       setPreviewLoading(false);
     }

@@ -36,7 +36,7 @@ export default async function handler(req, res) {
 
     const { access_token } = await tokenResponse.json();
     const query = encodeURIComponent(`track:${song} artist:${artist}`.trim());
-    const searchUrl = `https://api.spotify.com/v1/search?q=${query}&type=track&market=US&limit=10`;
+    const searchUrl = `https://api.spotify.com/v1/search?q=${query}&type=track&market=US&limit=20`;
 
     const searchResponse = await fetch(searchUrl, {
       headers: { Authorization: `Bearer ${access_token}` }
@@ -62,7 +62,12 @@ export default async function handler(req, res) {
       }
     }
 
-    return res.status(200).json({ tracks, artist: artistData });
+    return res.status(200).json({
+      tracks,
+      artist: artistData,
+      artistFollowers: artistData?.followers?.total ?? 0,
+      market: "US"
+    });
   } catch (error) {
     return res.status(500).json({ error: "Spotify server error", details: error?.message || String(error) });
   }

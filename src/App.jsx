@@ -283,7 +283,10 @@ async function fetchSpotifyMedia(song, artist) {
       popularity: track.popularity ?? null,
       releaseYear: releaseDate ? releaseDate.slice(0, 4) : "",
       genres: Array.isArray(data?.artist?.genres) ? data.artist.genres.slice(0, 4) : [],
-      artistImage: artistImages[0]?.url || artistImages[1]?.url || ""
+      artistImage: artistImages[0]?.url || artistImages[1]?.url || "",
+      artistFollowers: data?.artistFollowers ?? data?.artist?.followers?.total ?? 0,
+      availableMarkets: Array.isArray(track.available_markets) ? track.available_markets : [],
+      spotifyVerified: true
     };
   } catch (error) {
     console.warn("Spotify lookup failed", error);
@@ -413,6 +416,32 @@ const GENRE_MATCHERS = {
   rock: ["rock", "punk", "grunge", "metal", "guitar", "post-punk", "post punk"],
   cinematic: ["soundtrack", "score", "cinematic", "orchestral", "movie", "film", "instrumental", "atmospheric"]
 };
+
+
+const US_MAINSTREAM_FILTER = {
+  market: "US",
+  minArtistFollowers: 30000,
+  minTrackPopularity: 18
+};
+
+function isUsMarketTrack(metadata = {}) {
+  const markets = metadata.availableMarkets || metadata.available_markets || [];
+  if (!Array.isArray(markets) || !markets.length) return true;
+  return markets.includes("US");
+}
+
+function isUsMainstreamEligible(metadata = {}, strict = true) {
+  const popularity = Number(metadata.popularity ?? metadata.spotifyPopularity ?? -1);
+  const followers = Number(metadata.artistFollowers ?? metadata.followers ?? 0);
+  const hasSpotifyProof = Boolean(metadata.spotifyTrackId || metadata.spotifyUrl || metadata.spotifyVerified);
+
+  if (!strict && !hasSpotifyProof) return true;
+  if (!hasSpotifyProof) return false;
+  if (!isUsMarketTrack(metadata)) return false;
+  if (!Number.isFinite(popularity) || popularity < US_MAINSTREAM_FILTER.minTrackPopularity) return false;
+  if (!Number.isFinite(followers) || followers < US_MAINSTREAM_FILTER.minArtistFollowers) return false;
+  return true;
+}
 
 const SONG_GENRE_KEYS = {
   "after dark::mr.kitty": ["electronic"],
@@ -780,6 +809,17 @@ async function buildFreshAuraResult(auraKey, colors = ["6d5dfc", "19d8ff", "ff3d
     genreKey: discovered.genreKey
   };
 
+  if (!isUsMainstreamEligible(discoveredMetadata, true)) {
+    const availableIndexes = profile.songs
+      .map((songPack, index) => ({ songPack, index }))
+      .filter(({ songPack }) => !isExcludedTrack(songPack[0], songPack[1], excludedKeys))
+      .filter(({ songPack }) => isTrackAllowedByGenre(songPack[0], songPack[1], {}, genreSettings, true));
+    const randomSongIndex = availableIndexes.length
+      ? randomItem(availableIndexes).index
+      : Math.floor(Math.random() * profile.songs.length);
+    return buildResult(auraKey, randomSongIndex, safeColors, true, imageBrain, genreSettings);
+  }
+
   if (!isTrackAllowedByGenre(discovered.song, discovered.artist, discoveredMetadata, genreSettings, true)) {
     const availableIndexes = profile.songs
       .map((songPack, index) => ({ songPack, index }))
@@ -821,7 +861,9 @@ async function buildFreshAuraResult(auraKey, colors = ["6d5dfc", "19d8ff", "ff3d
     popularity: media.popularity ?? null,
     releaseYear: media.releaseYear || "",
     genres: media.genres || [],
-    artistImage: media.artistImage || ""
+    artistImage: media.artistImage || "",
+    artistFollowers: media.artistFollowers ?? 0,
+    usMainstreamVerified: isUsMainstreamEligible(media, true)
   };
 }
 
@@ -999,7 +1041,11 @@ async function buildResult(auraKey, songIndex = 0, colors = ["6d5dfc", "19d8ff",
       continue;
     }
 
-    if (candidateMedia?.previewUrl) {
+    if (!isUsMainstreamEligible(candidateMedia, true)) {
+      continue;
+    }
+
+    if (candidateMedia?.previewUrl && isUsMainstreamEligible(candidateMedia, true)) {
       chosenIndex = index;
       songPack = candidate;
       media = candidateMedia;
@@ -1010,6 +1056,18 @@ async function buildResult(auraKey, songIndex = 0, colors = ["6d5dfc", "19d8ff",
       chosenIndex = index;
       songPack = candidate;
       media = candidateMedia || {};
+    }
+  }
+
+  if (!isUsMainstreamEligible(media, true)) {
+    const fallback = profile.songs
+      .map((candidate, index) => ({ candidate, index }))
+      .find(({ candidate }) => isTrackAllowedByGenre(candidate[0], candidate[1], {}, genreSettings, true));
+
+    if (fallback) {
+      chosenIndex = fallback.index;
+      songPack = fallback.candidate;
+      media = await fetchSongMedia(songPack[0], songPack[1]);
     }
   }
 
@@ -1048,7 +1106,9 @@ async function buildResult(auraKey, songIndex = 0, colors = ["6d5dfc", "19d8ff",
     popularity: media.popularity ?? null,
     releaseYear: media.releaseYear || "",
     genres: media.genres || [],
-    artistImage: media.artistImage || ""
+    artistImage: media.artistImage || "",
+    artistFollowers: media.artistFollowers ?? 0,
+    usMainstreamVerified: isUsMainstreamEligible(media, true)
   };
 }
 

@@ -1681,7 +1681,7 @@ export default function App() {
       return;
     }
 
-    autoPlayAfterMatchRef.current = true;
+    
     unlockMobileAudio();
 
     setLoading(true);
@@ -1761,7 +1761,7 @@ export default function App() {
       return;
     }
 
-    autoPlayAfterMatchRef.current = true;
+    
     unlockMobileAudio();
 
     setLiveCapturing(true);
@@ -2440,11 +2440,7 @@ export default function App() {
                     {previewLoading ? "Finding preview..." : playing ? "Fade out preview" : "Play preview"}
                   </button>
 
-                  {previewError && (
-                    <p className="ios-glass mt-3 rounded-2xl px-4 py-3 text-center text-xs text-white/52">
-                      {previewError}
-                    </p>
-                  )}
+                  
 
                   <a href={result.spotifyUrl} target="_blank" rel="noreferrer" className="ios-glass mt-3 flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-white/78 transition duration-500 ease-out hover:scale-[1.015] active:scale-[0.985]">
                     Open song search <ExternalLink size={15} />

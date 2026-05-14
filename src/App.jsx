@@ -1617,15 +1617,6 @@ export default function App() {
   useEffect(() => {
     if (!result) return;
 
-    useEffect(() => {
-  if (result?.previewUrl) {
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        playPreviewUrl(result.previewUrl, true);
-      });
-    });
-  }
-}, [result]);
     const entry = {
       id: `${result.song}-${result.artist}-${Date.now()}`,
       aura: result.aura,
@@ -1650,22 +1641,28 @@ export default function App() {
 
     try {
       clearFadeTimer();
-
+      // Prime mobile Safari/Chrome audio inside the user's Read Aura tap.
       audio.pause();
-      audio.currentTime = 0;
-
       audio.muted = true;
       audio.volume = 0;
       audio.playsInline = true;
       audio.preload = "auto";
+      audio.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=";
+      audio.load();
 
-      // Keep audio session ACTIVE on iPhone
-      audio.src = "data:audio/mp3;base64,//uQxAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAACAAACcQCA";
-      await audio.play().catch(() => {});
+      const prime = audio.play();
+      if (prime !== undefined) await prime.catch(() => {});
 
-      // DO NOT pause here
+      audio.pause();
+      audio.currentTime = 0;
+      audio.muted = false;
+      audio.volume = 1;
     } catch (error) {
       console.warn("Audio prime skipped", error);
+      if (audio) {
+        audio.muted = false;
+        audio.volume = 1;
+      }
     }
   }
 
@@ -1690,7 +1687,7 @@ export default function App() {
       return;
     }
 
-    
+    autoPlayAfterMatchRef.current = true;
     unlockMobileAudio();
 
     setLoading(true);
@@ -1770,7 +1767,7 @@ export default function App() {
       return;
     }
 
-    
+    autoPlayAfterMatchRef.current = true;
     unlockMobileAudio();
 
     setLiveCapturing(true);
@@ -1884,52 +1881,86 @@ export default function App() {
   }
 
   async function playPreviewUrl(previewUrl, autoStarted = false) {
-    const audio = audioRef.current;
+  const audio = audioRef.current;
 
-    if (!audio || !previewUrl) return;
-
-    clearFadeTimer();
-
-    try {
-      setPreviewLoading(true);
-      setPreviewError("");
-
-      audio.playsInline = true;
-      audio.preload = "auto";
-
-      // Keep active audio session alive for iPhone autoplay
-      const wasMuted = audio.muted;
-
-      audio.src = previewUrl;
-      audio.load();
-
-      if (autoStarted) {
-        audio.muted = true;
-      } else {
-        audio.muted = false;
-        audio.volume = 1;
-      }
-
-      await audio.play();
-
-      if (autoStarted) {
-        setTimeout(() => {
-          audio.muted = false;
-          audio.volume = 1;
-        }, 120);
-      }
-
-      setPlaying(true);
-      setAudioReactive(true);
-      setPreviewError("");
-    } catch (error) {
-      console.warn("Mobile playback failed", error);
-      setPlaying(false);
-      setAudioReactive(false);
-    } finally {
-      setPreviewLoading(false);
-    }
+  if (!audio || !previewUrl) {
+    setPreviewError("Preview unavailable.");
+    return;
   }
+
+  clearFadeTimer();
+
+  try {
+    setPreviewLoading(true);
+    setPreviewError("");
+
+    // Reset audio
+    audio.pause();
+    audio.currentTime = 0;
+
+    // Core setup
+    audio.src = previewUrl;
+    audio.preload = "auto";
+    audio.playsInline = true;
+
+    // IMPORTANT:
+    // Browsers allow autoplay easier when muted first
+    if (autoStarted) {
+      audio.muted = true;
+      audio.volume = 0;
+    } else {
+      audio.muted = false;
+      audio.volume = 1;
+    }
+
+    audio.load();
+
+    // Start playback
+    const playPromise = audio.play();
+
+    if (playPromise !== undefined) {
+      await playPromise;
+    }
+
+    // Fade audio in after autoplay starts
+    if (autoStarted) {
+      setTimeout(() => {
+        audio.muted = false;
+
+        let vol = 0;
+        audio.volume = 0;
+
+        const fade = setInterval(() => {
+          vol += 0.08;
+
+          if (vol >= 1) {
+            audio.volume = 1;
+            clearInterval(fade);
+          } else {
+            audio.volume = vol;
+          }
+        }, 45);
+      }, 180);
+    }
+
+    setPlaying(true);
+    setAudioReactive(true);
+    setPreviewError("");
+  } catch (error) {
+    console.warn("Playback failed", error);
+
+    setPlaying(false);
+    setAudioReactive(false);
+
+    setPreviewError(
+      autoStarted
+        ? "Auto-play was blocked. Tap play to start the preview."
+        : "Preview failed to play."
+    );
+  } finally {
+    setPreviewLoading(false);
+  }
+}
 
   async function togglePreview() {
     const audio = audioRef.current;
@@ -2449,7 +2480,11 @@ export default function App() {
                     {previewLoading ? "Finding preview..." : playing ? "Fade out preview" : "Play preview"}
                   </button>
 
-                  
+                  {previewError && (
+                    <p className="ios-glass mt-3 rounded-2xl px-4 py-3 text-center text-xs text-white/52">
+                      {previewError}
+                    </p>
+                  )}
 
                   <a href={result.spotifyUrl} target="_blank" rel="noreferrer" className="ios-glass mt-3 flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-white/78 transition duration-500 ease-out hover:scale-[1.015] active:scale-[0.985]">
                     Open song search <ExternalLink size={15} />

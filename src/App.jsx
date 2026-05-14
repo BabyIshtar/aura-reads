@@ -1462,9 +1462,8 @@ const auraRuntimeCss = `
 `;
 
 
-function isMobileAudioRestricted() {
-  if (typeof navigator === "undefined") return false;
-  return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || "");
+function shouldAttemptAutoplay() {
+  return true;
 }
 
 export default function App() {
@@ -1613,11 +1612,40 @@ const entry = {
       return next;
     });
   }, [result?.song, result?.artist]);
-  function unlockMobileAudio() {
-    // Modern mobile browsers require the actual preview to start from a real tap.
-    // Keep this as a harmless arm flag instead of hijacking the audio element.
-    autoPlayAfterMatchRef.current = true;
-}
+  async function unlockMobileAudio() {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    try {
+      clearFadeTimer();
+
+      audio.pause();
+      audio.currentTime = 0;
+      audio.loop = false;
+      audio.muted = true;
+      audio.volume = 0;
+      audio.playsInline = true;
+      audio.preload = "auto";
+
+      // A tiny silent WAV primes the audio element during the user's tap.
+      audio.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=";
+      audio.load();
+
+      const prime = audio.play();
+      if (prime !== undefined) await prime.catch(() => {});
+
+      audio.pause();
+      audio.currentTime = 0;
+      audio.loop = false;
+      audio.muted = false;
+      audio.volume = 1;
+    } catch (error) {
+      console.warn("Audio prime skipped", error);
+      audio.muted = false;
+      audio.volume = 1;
+      audio.loop = false;
+    }
+  }
 
   function handleFile(file) {
     if (!file) return;
@@ -1643,9 +1671,11 @@ const entry = {
     
     
     
-    
     autoPlayAfterMatchRef.current = true;
-setLoading(true);
+    unlockMobileAudio();
+unlockMobileAudio();
+
+    setLoading(true);
     setResult(null);
     setUnlockResult(null);
     setPlaying(false);
@@ -1673,7 +1703,7 @@ setLoading(true);
         autoPlayAfterMatchRef.current &&
         built?.previewUrl &&
         lastAutoPlayedPreviewRef.current !== built.previewUrl &&
-        !isMobileAudioRestricted()
+        shouldAttemptAutoplay()
       ) {
         autoPlayAfterMatchRef.current = false;
         lastAutoPlayedPreviewRef.current = built.previewUrl;
@@ -1682,12 +1712,15 @@ setLoading(true);
         }, 260);
       }
 
-      if (
-        autoPlayAfterMatchRef.current &&
-        built?.previewUrl &&
-        lastAutoPlayedPreviewRef.current !== built.previewUrl &&
-        !isMobileAudioRestricted()
-      ) {
+      if (autoPlayAfterMatchRef.current && built?.previewUrl && lastAutoPlayedPreviewRef.current !== built.previewUrl) {
+        autoPlayAfterMatchRef.current = false;
+        lastAutoPlayedPreviewRef.current = built.previewUrl;
+        window.setTimeout(() => {
+          playPreviewUrl(built.previewUrl, true);
+        }, 260);
+      }
+
+      if (autoPlayAfterMatchRef.current && built?.previewUrl && lastAutoPlayedPreviewRef.current !== built.previewUrl) {
         autoPlayAfterMatchRef.current = false;
         lastAutoPlayedPreviewRef.current = built.previewUrl;
         window.setTimeout(() => {
@@ -1697,12 +1730,7 @@ setLoading(true);
 
       // Auto-play the first aura match after the reveal.
       // This is armed by the user's Read Aura tap and backed by mobile audio priming.
-      if (
-        autoPlayAfterMatchRef.current &&
-        built?.previewUrl &&
-        lastAutoPlayedPreviewRef.current !== built.previewUrl &&
-        !isMobileAudioRestricted()
-      ) {
+      if (autoPlayAfterMatchRef.current && built?.previewUrl && lastAutoPlayedPreviewRef.current !== built.previewUrl) {
         autoPlayAfterMatchRef.current = false;
         lastAutoPlayedPreviewRef.current = built.previewUrl;
         window.setTimeout(() => {
@@ -1757,7 +1785,10 @@ setLoading(true);
     
     
     autoPlayAfterMatchRef.current = true;
-setLiveCapturing(true);
+    unlockMobileAudio();
+unlockMobileAudio();
+
+    setLiveCapturing(true);
     setLoading(true);
     setResult(null);
     setUnlockResult(null);
@@ -1793,6 +1824,19 @@ setLiveCapturing(true);
       setUnlockResult(null);
       setUnlocking(true);
       window.setTimeout(() => setUnlocking(false), 780);
+
+      if (
+        autoPlayAfterMatchRef.current &&
+        built?.previewUrl &&
+        lastAutoPlayedPreviewRef.current !== built.previewUrl &&
+        shouldAttemptAutoplay()
+      ) {
+        autoPlayAfterMatchRef.current = false;
+        lastAutoPlayedPreviewRef.current = built.previewUrl;
+        window.setTimeout(() => {
+          playPreviewUrl(built.previewUrl, true);
+        }, 260);
+      }
     }, 3650);
   }
 
@@ -1914,7 +1958,7 @@ setLiveCapturing(true);
           } catch {
             // ignore
           }
-        }, 200);
+        }, 220);
       }
 
       return true;
@@ -1938,7 +1982,9 @@ setLiveCapturing(true);
     setPreviewError("");
 
     if (playing && !audio.paused) {
-      fadeOutAndPause();
+      audio.pause();
+      setPlaying(false);
+      setAudioReactive(false);
       return;
     }
 
@@ -2450,7 +2496,6 @@ setLiveCapturing(true);
         ref={audioRef}
         playsInline
         preload="auto"
-        crossOrigin="anonymous"
         onEnded={() => {
           setPlaying(false);
           setAudioReactive(false);

@@ -522,6 +522,21 @@ function isUsMainstreamEligible(metadata = {}, strict = true) {
   return true;
 }
 
+
+function hasProviderArtworkOrPreview(metadata = {}) {
+  return Boolean(metadata.albumArt || metadata.previewUrl || metadata.appleMusicUrl || metadata.spotifyUrl);
+}
+
+function isLiveDiscoveryEligible(metadata = {}) {
+  // Spotify proof is ideal, but Apple/iTunes US and Deezer often provide better previews/artwork.
+  // If Spotify data exists, enforce the US-mainstream gate. If it does not, do not kill the live result
+  // just to fall back to the tiny demo pool.
+  if (metadata.spotifyTrackId || metadata.spotifyVerified || metadata.spotifyUrl) {
+    return isUsMainstreamEligible(metadata, true);
+  }
+  return hasProviderArtworkOrPreview(metadata);
+}
+
 const SONG_GENRE_KEYS = {
   "after dark::mr.kitty": ["electronic"],
   "be quiet and drive far away::deftones": ["rock"],
@@ -948,7 +963,38 @@ async function buildFreshAuraResult(auraKey, colors = ["6d5dfc", "19d8ff", "ff3d
     genreKey: discovered.genreKey
   };
 
-  if (!isUsMainstreamEligible(discoveredMetadata, true)) {
+  if (!isLiveDiscoveryEligible({ ...discovered, ...discoveredMetadata })) {
+    console.warn("Live discovery rejected by US-mainstream/artwork gate", discovered.song, discovered.artist);
+    const recovered = await fetchItunesDiscovery(auraKey, excludedKeys, genreSettings, imageBrain)
+      || await fetchDeezerDiscovery(auraKey, excludedKeys, genreSettings, imageBrain);
+
+    if (recovered?.song && recovered?.artist && recovered.albumArt) {
+      return {
+        auraKey,
+        songIndex: Date.now(),
+        colors: safeColors,
+        aura: generateAuraName(auraKey, imageBrain),
+        mood: profile.mood,
+        song: recovered.song,
+        artist: recovered.artist,
+        reason: discoveryReason(auraKey),
+        aiInsight: buildAuraInsight({ ...imageBrain, auraKey }, recovered.song),
+        visualBrain: { ...imageBrain, auraKey },
+        albumArt: recovered.albumArt || generatedAlbumArt(recovered.song, recovered.artist, safeColors),
+        previewUrl: recovered.previewUrl || "",
+        appleMusicUrl: recovered.appleMusicUrl || "",
+        collectionName: recovered.collectionName || "",
+        spotifyUrl: recovered.spotifyUrl || `https://open.spotify.com/search/${encodeURIComponent(`${recovered.song} ${recovered.artist}`)}`,
+        spotifyTrackId: recovered.spotifyTrackId || "",
+        popularity: recovered.popularity ?? null,
+        releaseYear: recovered.releaseYear || "",
+        genres: recovered.genres || [],
+        artistImage: recovered.artistImage || "",
+        artistFollowers: recovered.artistFollowers ?? 0,
+        usMainstreamVerified: Boolean(recovered.spotifyTrackId)
+      };
+    }
+
     const availableIndexes = profile.songs
       .map((songPack, index) => ({ songPack, index }))
       .filter(({ songPack }) => !isExcludedTrack(songPack[0], songPack[1], excludedKeys))

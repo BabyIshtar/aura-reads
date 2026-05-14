@@ -1462,6 +1462,11 @@ const auraRuntimeCss = `
 `;
 
 
+function isMobileAudioRestricted() {
+  if (typeof navigator === "undefined") return false;
+  return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || "");
+}
+
 export default function App() {
   const fileInputRef = useRef(null);
   const cameraInputRef = useRef(null);
@@ -1608,40 +1613,11 @@ const entry = {
       return next;
     });
   }, [result?.song, result?.artist]);
-  async function unlockMobileAudio() {
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    try {
-      clearFadeTimer();
-
-      audio.pause();
-      audio.currentTime = 0;
-      audio.loop = false;
-      audio.muted = true;
-      audio.volume = 0;
-      audio.playsInline = true;
-      audio.preload = "auto";
-
-      // A tiny silent WAV primes the audio element during the user's tap.
-      audio.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=";
-      audio.load();
-
-      const prime = audio.play();
-      if (prime !== undefined) await prime.catch(() => {});
-
-      audio.pause();
-      audio.currentTime = 0;
-      audio.loop = false;
-      audio.muted = false;
-      audio.volume = 1;
-    } catch (error) {
-      console.warn("Audio prime skipped", error);
-      audio.muted = false;
-      audio.volume = 1;
-      audio.loop = false;
-    }
-  }
+  function unlockMobileAudio() {
+    // Modern mobile browsers require the actual preview to start from a real tap.
+    // Keep this as a harmless arm flag instead of hijacking the audio element.
+    autoPlayAfterMatchRef.current = true;
+}
 
   function handleFile(file) {
     if (!file) return;
@@ -1667,11 +1643,9 @@ const entry = {
     
     
     
+    
     autoPlayAfterMatchRef.current = true;
-    unlockMobileAudio();
-unlockMobileAudio();
-
-    setLoading(true);
+setLoading(true);
     setResult(null);
     setUnlockResult(null);
     setPlaying(false);
@@ -1695,7 +1669,12 @@ unlockMobileAudio();
       setUnlocking(true);
       window.setTimeout(() => setUnlocking(false), 780);
 
-      if (autoPlayAfterMatchRef.current && built?.previewUrl && lastAutoPlayedPreviewRef.current !== built.previewUrl) {
+      if (
+        autoPlayAfterMatchRef.current &&
+        built?.previewUrl &&
+        lastAutoPlayedPreviewRef.current !== built.previewUrl &&
+        !isMobileAudioRestricted()
+      ) {
         autoPlayAfterMatchRef.current = false;
         lastAutoPlayedPreviewRef.current = built.previewUrl;
         window.setTimeout(() => {
@@ -1703,7 +1682,12 @@ unlockMobileAudio();
         }, 260);
       }
 
-      if (autoPlayAfterMatchRef.current && built?.previewUrl && lastAutoPlayedPreviewRef.current !== built.previewUrl) {
+      if (
+        autoPlayAfterMatchRef.current &&
+        built?.previewUrl &&
+        lastAutoPlayedPreviewRef.current !== built.previewUrl &&
+        !isMobileAudioRestricted()
+      ) {
         autoPlayAfterMatchRef.current = false;
         lastAutoPlayedPreviewRef.current = built.previewUrl;
         window.setTimeout(() => {
@@ -1713,7 +1697,12 @@ unlockMobileAudio();
 
       // Auto-play the first aura match after the reveal.
       // This is armed by the user's Read Aura tap and backed by mobile audio priming.
-      if (autoPlayAfterMatchRef.current && built?.previewUrl && lastAutoPlayedPreviewRef.current !== built.previewUrl) {
+      if (
+        autoPlayAfterMatchRef.current &&
+        built?.previewUrl &&
+        lastAutoPlayedPreviewRef.current !== built.previewUrl &&
+        !isMobileAudioRestricted()
+      ) {
         autoPlayAfterMatchRef.current = false;
         lastAutoPlayedPreviewRef.current = built.previewUrl;
         window.setTimeout(() => {
@@ -1768,10 +1757,7 @@ unlockMobileAudio();
     
     
     autoPlayAfterMatchRef.current = true;
-    unlockMobileAudio();
-unlockMobileAudio();
-
-    setLiveCapturing(true);
+setLiveCapturing(true);
     setLoading(true);
     setResult(null);
     setUnlockResult(null);
@@ -1884,7 +1870,7 @@ unlockMobileAudio();
   async function playPreviewUrl(previewUrl, autoStarted = false) {
     const audio = audioRef.current;
 
-    if (!audio || !previewUrl) return;
+    if (!audio || !previewUrl) return false;
 
     clearFadeTimer();
 
@@ -1892,15 +1878,18 @@ unlockMobileAudio();
       setPreviewLoading(true);
       setPreviewError("");
 
-      audio.loop = false;
       audio.pause();
+      audio.removeAttribute("src");
+      audio.load();
+
+      audio.loop = false;
       audio.currentTime = 0;
       audio.playsInline = true;
       audio.preload = "auto";
+      audio.crossOrigin = "anonymous";
       audio.src = previewUrl;
 
       if (autoStarted) {
-        // Muted-first playback is the most reliable cross-browser autoplay path.
         audio.muted = true;
         audio.volume = 0;
       } else {
@@ -1918,8 +1907,6 @@ unlockMobileAudio();
       setPreviewError("");
 
       if (autoStarted) {
-        // Unmute shortly after playback begins. Some browsers may still block this;
-        // the manual Play Preview button remains the fallback.
         window.setTimeout(() => {
           try {
             audio.muted = false;
@@ -1927,13 +1914,16 @@ unlockMobileAudio();
           } catch {
             // ignore
           }
-        }, 180);
+        }, 200);
       }
+
+      return true;
     } catch (error) {
-      console.warn("Playback failed", error);
+      console.warn("Preview playback failed", error);
       setPlaying(false);
       setAudioReactive(false);
       setPreviewError("");
+      return false;
     } finally {
       setPreviewLoading(false);
     }
@@ -1942,10 +1932,7 @@ unlockMobileAudio();
   async function togglePreview() {
     const audio = audioRef.current;
 
-    if (!audio || !result) {
-      setPreviewError("");
-      return;
-    }
+    if (!audio || !result) return;
 
     clearFadeTimer();
     setPreviewError("");
@@ -1958,21 +1945,17 @@ unlockMobileAudio();
     try {
       let previewUrl = result.previewUrl;
 
-      // On mobile, do not pre-check the audio URL before play().
-      // The play call needs to stay as close to the user's tap as possible.
       if (!previewUrl) {
         previewUrl = await getFreshPreviewUrl(result);
       }
 
-      if (!previewUrl) {
-        setPreviewError("");
-        return;
-      }
+      if (!previewUrl) return;
 
-      await playPreviewUrl(previewUrl);
+      await playPreviewUrl(previewUrl, false);
     } catch (error) {
       console.warn("Preview playback failed", error);
       setPlaying(false);
+      setAudioReactive(false);
       setPreviewError("");
     }
   }
@@ -2467,6 +2450,7 @@ unlockMobileAudio();
         ref={audioRef}
         playsInline
         preload="auto"
+        crossOrigin="anonymous"
         onEnded={() => {
           setPlaying(false);
           setAudioReactive(false);

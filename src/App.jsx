@@ -115,27 +115,27 @@ function auraTypographyClass(auraKey = "") {
 const AURA_ENVIRONMENTS = {
   grungeNoir: {
     overlay: "rgba(4,4,6,.22)",
-    blur: REDUCED_MOTION_MOBILE ? "38px" : "120px",
+    blur: "120px",
     opacity: 0.22
   },
   neonNightlife: {
     overlay: "rgba(0,16,38,.16)",
-    blur: REDUCED_MOTION_MOBILE ? "42px" : "140px",
+    blur: "140px",
     opacity: 0.36
   },
   warmDreamscape: {
     overlay: "rgba(40,14,8,.12)",
-    blur: REDUCED_MOTION_MOBILE ? "40px" : "130px",
+    blur: "130px",
     opacity: 0.26
   },
   editorialLuxury: {
     overlay: "rgba(255,255,255,.04)",
-    blur: REDUCED_MOTION_MOBILE ? "44px" : "160px",
+    blur: "160px",
     opacity: 0.14
   },
   stormPressure: {
     overlay: "rgba(12,20,42,.16)",
-    blur: REDUCED_MOTION_MOBILE ? "42px" : "145px",
+    blur: "145px",
     opacity: 0.24
   }
 };
@@ -143,14 +143,8 @@ const AURA_ENVIRONMENTS = {
 
 
 const IOS_EASE = [0.22, 1, 0.36, 1];
-const SOFT_SPRING = REDUCED_MOTION_MOBILE ? { type: "tween", duration: 0.28 } : { type: "spring", stiffness: 72, damping: 20, mass: 1.05 };
+const SOFT_SPRING = { type: "spring", stiffness: 72, damping: 20, mass: 1.05 };
 const CASCADE_EASE = [0.16, 1, 0.3, 1];
-
-const REDUCED_MOTION_MOBILE =
-  typeof window !== "undefined" &&
-  (window.innerWidth < 768 ||
-    /Android|iPhone|iPad|iPod/i.test(navigator.userAgent));
-
 
 function clamp(value, min = 0, max = 255) {
   return Math.max(min, Math.min(max, value));
@@ -1993,6 +1987,38 @@ const auraRuntimeCss = `
     transform: translate3d(0,0,0);
   }
 
+  @media (max-width: 768px), (pointer: coarse), (prefers-reduced-motion: reduce) {
+    .aura-trail,
+    .aura-color-bloom,
+    .aura-sphere::before,
+    .aura-unlock-wash,
+    .aura-unlock-sweep {
+      display: none !important;
+    }
+
+    .aura-gradient-mesh {
+      filter: none !important;
+      opacity: .58 !important;
+    }
+
+    .aura-sphere-wrap {
+      filter: drop-shadow(0 0 30px color-mix(in srgb, var(--aura-b) 55%, transparent)) drop-shadow(0 18px 44px rgba(0,0,0,.48)) !important;
+    }
+
+    .aura-sphere,
+    .ios-glass,
+    .unlock-split-card,
+    .aura-history-card {
+      backdrop-filter: blur(12px) saturate(1.08) !important;
+      -webkit-backdrop-filter: blur(12px) saturate(1.08) !important;
+    }
+
+    .aura-plasma {
+      animation: none !important;
+      filter: saturate(1.12) contrast(1.02) !important;
+    }
+  }
+
   @media (max-width: 480px) {
     .aura-trail {
       width: 6.5rem;
@@ -2028,7 +2054,9 @@ const auraRuntimeCss = `
 
 
 function shouldAttemptAutoplay() {
-  return true;
+  // Browsers, especially iOS Safari, often block programmatic autoplay after async work.
+  // Keep previews manual-first so the audio element does not get stuck in a failed state.
+  return false;
 }
 
 function safeLocalStorageGet(key, fallback = null) {
@@ -2114,6 +2142,14 @@ export default function App() {
   }), [colors]);
 
   const enabledGenresCount = GENRE_OPTIONS.filter((genre) => genreSettings[genre.key]).length;
+  const lowPowerMode = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    const coarsePointer = window.matchMedia?.("(pointer: coarse)")?.matches;
+    const narrowScreen = window.innerWidth < 768;
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    const lowMemory = Number(navigator.deviceMemory || 8) <= 4;
+    return Boolean(reducedMotion || narrowScreen || coarsePointer || lowMemory);
+  }, []);
 
 
   useEffect(() => {
@@ -2278,22 +2314,17 @@ const entry = {
     const audio = audioRef.current;
     if (!audio) return false;
 
+    // Do not swap the element to a silent data source here. That was causing some
+    // mobile browsers to keep the element in a failed/paused state before the real
+    // preview URL was assigned. Real playback now starts only from the Play button.
     try {
       clearFadeTimer();
       audio.pause();
-      audio.loop = true;
-      audio.muted = true;
-      audio.volume = 0;
+      audio.loop = false;
+      audio.muted = false;
+      audio.volume = 1;
       audio.playsInline = true;
-      audio.preload = "auto";
-
-      if (audio.src !== SILENT_AUDIO_SRC) {
-        audio.src = SILENT_AUDIO_SRC;
-        audio.load();
-      }
-
-      const prime = audio.play();
-      if (prime !== undefined) await prime.catch(() => {});
+      audio.preload = "metadata";
       audioUnlockedRef.current = true;
       return true;
     } catch (error) {
@@ -2685,8 +2716,8 @@ const entry = {
       <audio
         ref={audioRef}
         playsInline
-        preload="auto"
-        className="hidden"
+        preload="metadata"
+        style={{ display: "block", width: 0, height: 0, opacity: 0, pointerEvents: "none", position: "absolute" }}
         onCanPlay={() => setPreviewLoading(false)}
         onPlay={() => {
           setPlaying(true);
@@ -2712,10 +2743,10 @@ const entry = {
 
       <motion.div
         className="aura-gradient-mesh pointer-events-none fixed inset-0"
-        animate={{ opacity: [0.62, 0.86, 0.62], scale: [1, 1.05, 1] }}
-        transition={{ duration: 12, repeat: Infinity, ease: "easeInOut" }}
+        animate={lowPowerMode ? { opacity: 0.58, scale: 1 } : { opacity: [0.62, 0.86, 0.62], scale: [1, 1.05, 1] }}
+        transition={{ duration: lowPowerMode ? 0.2 : 12, repeat: lowPowerMode ? 0 : Infinity, ease: "easeInOut" }}
       />
-      {[0, 1, 2].map((trail) => (
+      {!lowPowerMode && [0, 1, 2].map((trail) => (
         <motion.div
           key={`trail-${trail}`}
           className="aura-trail fixed z-[2]"
@@ -2972,7 +3003,7 @@ const entry = {
             <motion.div
               initial={{ scale: 0.2, opacity: 0.85 }}
               animate={{ scale: 5.2, opacity: 0 }}
-              transition={{ duration: REDUCED_MOTION_MOBILE ? 0.45 : 1.25, ease: CASCADE_EASE }}
+              transition={{ duration: 1.25, ease: CASCADE_EASE }}
               className="h-40 w-40 rounded-full bg-[radial-gradient(circle,var(--aura-a),transparent_68%)] blur-[28px]"
             />
           </motion.div>
@@ -3141,7 +3172,7 @@ const entry = {
               className="aura-unlock-wash"
               initial={{ opacity: 0, scale: 0.96 }}
               animate={{ opacity: [0, 0.46, 0], scale: [0.96, 1.035, 1.08] }}
-              transition={{ duration: REDUCED_MOTION_MOBILE ? 0.45 : 1.2, ease: IOS_EASE }}
+              transition={{ duration: 1.2, ease: IOS_EASE }}
             />
             <motion.div
               className="aura-unlock-sweep"

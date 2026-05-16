@@ -989,26 +989,46 @@ function spotifyCandidateQueries(auraKey, genreSettings = DEFAULT_GENRE_SETTINGS
     editorialLuxury: ["alternative r&b", "art pop", "minimal electronic", "sleek pop", "fashion music"],
     stormPressure: ["moody hip hop", "atmospheric rap", "blue electronic", "ambient pop", "cinematic rap"]
   };
-  const genreTerms = enabled.flatMap((key) => STRICT_GENRE_QUERY_POOLS[key] || []);
+
+  const genreBuckets = enabled.flatMap((key) => (STRICT_GENRE_QUERY_POOLS[key] || []).map((term) => ({ text: term, genreKey: key })));
   const visualTerms = Array.isArray(imageBrain?.searchTerms) ? imageBrain.searchTerms.slice(0, 4) : [];
-  const baseTerms = [...(auraTerms[auraKey] || auraTerms.neonNightlife), ...genreTerms, ...visualTerms];
-  const safePopular = [
-    "US popular alternative r&b",
-    "US popular hip hop",
-    "US popular pop",
-    "US popular indie alternative",
-    "US popular electronic",
-    "US popular rock"
+  const auraBucket = (auraTerms[auraKey] || auraTerms.neonNightlife).map((term) => ({ text: term, genreKey: "" }));
+  const visualBucket = visualTerms.map((term) => ({ text: term, genreKey: "" }));
+  const rescueBucket = [
+    { text: "US top hits", genreKey: "" },
+    { text: "popular songs", genreKey: "" },
+    { text: "viral hits", genreKey: "" },
+    { text: "today's top hits", genreKey: "" },
+    { text: "US popular alternative r&b", genreKey: "rbSoul" },
+    { text: "US popular hip hop", genreKey: "rapHipHop" },
+    { text: "US popular pop", genreKey: "pop" },
+    { text: "US popular indie alternative", genreKey: "indieAlt" },
+    { text: "US popular electronic", genreKey: "electronic" },
+    { text: "US popular rock", genreKey: "rock" }
   ];
-  return shuffleItems([...new Set([...baseTerms, ...safePopular].filter(Boolean))]).slice(0, 10);
+
+  const seen = new Set();
+  return shuffleItems([...genreBuckets, ...auraBucket, ...visualBucket, ...rescueBucket]
+    .map((item) => ({ ...item, text: String(item.text || "").trim() }))
+    .filter((item) => {
+      if (!item.text) return false;
+      const key = `${item.genreKey}::${item.text}`.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }))
+    .slice(0, 14);
 }
 
-function spotifyCandidateIsUsUsable(track = {}, genreKey = "", genreSettings = DEFAULT_GENRE_SETTINGS) {
+function spotifyCandidateIsUsUsable(track = {}, genreKey = "", genreSettings = DEFAULT_GENRE_SETTINGS, strictGenre = false) {
   if (!track?.name || !track?.artists?.[0]?.name) return false;
   const markets = Array.isArray(track.available_markets) ? track.available_markets : [];
   if (markets.length && !markets.includes("US")) return false;
   const popularity = Number(track.popularity ?? 0);
-  if (Number.isFinite(popularity) && popularity < 8) return false;
+  if (Number.isFinite(popularity) && popularity < 1) return false;
+  const albumImages = track.album?.images || [];
+  if (!albumImages.length) return false;
+
   const metadata = {
     spotifyTrackId: track.id || "",
     spotifyUrl: track.external_urls?.spotify || "",
@@ -1019,44 +1039,74 @@ function spotifyCandidateIsUsUsable(track = {}, genreKey = "", genreSettings = D
     searchGenreKey: genreKey,
     spotifyVerified: true
   };
-  // Keep genre filtering useful without letting bad provider metadata kill every result.
-  return isTrackAllowedByGenre(track.name, track.artists?.[0]?.name || "", metadata, genreSettings, false);
+
+  // Genre filters should guide discovery, not brick the whole app when Spotify metadata is broad/missing.
+  return isTrackAllowedByGenre(track.name, track.artists?.[0]?.name || "", metadata, genreSettings, strictGenre);
+}
+
+async function spotifySearchTracks(rawQuery, limit = 50) {
+  const params = new URLSearchParams({ q: rawQuery, limit: String(limit), market: "US" });
+  const data = await fetchJson(`/api/spotify-search?${params.toString()}&_=${Date.now()}`);
+  return Array.isArray(data?.tracks) ? data.tracks : [];
 }
 
 async function fetchSpotifyAuraTrack(auraKey, excludedKeys = new Set(), genreSettings = DEFAULT_GENRE_SETTINGS, imageBrain = null) {
-  const queries = spotifyCandidateQueries(auraKey, genreSettings, imageBrain);
+  const queryItems = spotifyCandidateQueries(auraKey, genreSettings, imageBrain);
   const candidates = [];
+  const softCandidates = [];
   const seen = new Set();
 
-  for (const rawQuery of queries) {
-    const genreKey = enabledGenreKeys(genreSettings).find((key) => rawQuery.toLowerCase().includes(key.toLowerCase())) || "";
-    try {
-      const params = new URLSearchParams({ q: rawQuery, limit: "50", market: "US" });
-      const data = await fetchJson(`/api/spotify-search?${params.toString()}&_=${Date.now()}`);
-      const tracks = Array.isArray(data?.tracks) ? data.tracks : [];
+  async function collect(rawQuery, genreKey = "", strictGenre = false) {
+    const tracks = await spotifySearchTracks(rawQuery, 50);
 
-      for (const track of tracks) {
-        const artistName = track?.artists?.[0]?.name || "";
-        const trackKey = normalizeTrackKey(track?.name, artistName);
-        if (seen.has(trackKey) || excludedKeys.has(trackKey)) continue;
-        if (!spotifyCandidateIsUsUsable(track, genreKey, genreSettings)) continue;
-        const albumImages = track.album?.images || [];
-        if (!albumImages.length) continue;
-        seen.add(trackKey);
-        candidates.push({
-          track,
-          score: scoreSpotifyCandidate(track) + (track.preview_url ? 12 : 0) + (albumImages[0]?.url ? 8 : 0),
-          genreKey
-        });
-      }
-    } catch (error) {
-      console.warn("Spotify aura query failed", rawQuery, error);
+    for (const track of tracks) {
+      const artistName = track?.artists?.[0]?.name || "";
+      const trackKey = normalizeTrackKey(track?.name, artistName);
+      if (!trackKey || trackKey === "::" || seen.has(trackKey) || excludedKeys.has(trackKey)) continue;
+      if (!spotifyCandidateIsUsUsable(track, genreKey, genreSettings, strictGenre)) continue;
+
+      seen.add(trackKey);
+      const albumImages = track.album?.images || [];
+      const score = scoreSpotifyCandidate(track) + (track.preview_url ? 18 : 0) + (albumImages[0]?.url ? 10 : 0);
+      const bundle = { track, score, genreKey };
+
+      if (genreKey && strictGenre) candidates.push(bundle);
+      else softCandidates.push(bundle);
     }
   }
 
-  if (!candidates.length) return null;
-  const ranked = shuffleItems(candidates).sort((a, b) => b.score - a.score).slice(0, 35);
-  const pickedBundle = randomItem(ranked.slice(0, Math.min(12, ranked.length))) || ranked[0];
+  for (const item of queryItems) {
+    try {
+      await collect(item.text, item.genreKey, Boolean(item.genreKey));
+      if (candidates.length >= 10 || softCandidates.length >= 18) break;
+    } catch (error) {
+      console.warn("Spotify aura query failed", item.text, error);
+    }
+  }
+
+  // Last-resort real Spotify searches. This still uses Spotify, not local/demo tracks.
+  if (!candidates.length && !softCandidates.length) {
+    for (const rescueQuery of ["US top hits", "popular songs", "today's top hits", "viral hits", "pop hits"]) {
+      try {
+        await collect(rescueQuery, "", false);
+        if (softCandidates.length >= 8) break;
+      } catch (error) {
+        console.warn("Spotify rescue query failed", rescueQuery, error);
+      }
+    }
+  }
+
+  const pool = (candidates.length ? candidates : softCandidates)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 35);
+
+  if (!pool.length) {
+    const error = new Error("Spotify did not return any tracks. Check the /api/spotify-search endpoint and redeploy after confirming your environment variables.");
+    error.code = "SPOTIFY_EMPTY";
+    throw error;
+  }
+
+  const pickedBundle = randomItem(pool.slice(0, Math.min(12, pool.length))) || pool[0];
   const picked = pickedBundle.track;
   const artistName = picked.artists?.[0]?.name || "Unknown Artist";
   const albumImages = picked.album?.images || [];
@@ -1070,8 +1120,8 @@ async function fetchSpotifyAuraTrack(auraKey, excludedKeys = new Set(), genreSet
     spotifyUrl: picked.external_urls?.spotify || "",
     spotifyTrackId: picked.id || "",
     collectionName: picked.album?.name || "",
-    genreKey: pickedBundle.genreKey,
-    searchGenreKey: pickedBundle.genreKey,
+    genreKey: pickedBundle.genreKey || "",
+    searchGenreKey: pickedBundle.genreKey || "",
     popularity: picked.popularity ?? null,
     releaseYear: releaseDate ? releaseDate.slice(0, 4) : "",
     genres: picked.artistGenres || [],
@@ -1081,20 +1131,29 @@ async function fetchSpotifyAuraTrack(auraKey, excludedKeys = new Set(), genreSet
     spotifyVerified: true
   });
 }
+
 async function buildFreshAuraResult(auraKey, colors = ["6d5dfc", "19d8ff", "ff3df2"], genreSettings = DEFAULT_GENRE_SETTINGS, imageBrain = null) {
   const profile = AURA_PROFILES[auraKey] || AURA_PROFILES.grungeNoir;
   const safeColors = colors?.length >= 3 ? colors : profile.colorFallback;
   const excludedKeys = getRecentSongKeys(18);
 
   // Production rule: never use the local demo song list as a hidden fallback.
-  // The visual/aura copy can still use local profile data, but the song itself must come from Spotify.
+  // The song is always selected from Spotify. Apple/iTunes/Deezer only supply preview audio when Spotify has none.
   const spotifyTrack = await fetchSpotifyAuraTrack(auraKey, excludedKeys, genreSettings, imageBrain);
 
   if (!spotifyTrack?.song || !spotifyTrack?.artist || !spotifyTrack?.spotifyUrl) {
-    throw new Error("Spotify is taking too long right now. Tap Read Aura again for a fresh search.");
+    throw new Error("Spotify did not return a usable track. Tap Read Aura again or check the Spotify API endpoint.");
   }
 
-  const previewMedia = spotifyTrack.previewUrl ? {} : await fetchSongMedia(spotifyTrack.song, spotifyTrack.artist);
+  let previewMedia = {};
+  if (!spotifyTrack.previewUrl) {
+    try {
+      previewMedia = await fetchSongMedia(spotifyTrack.song, spotifyTrack.artist);
+    } catch (error) {
+      console.warn("Preview lookup failed after Spotify match", error);
+    }
+  }
+
   const previewUrl = spotifyTrack.previewUrl || previewMedia.previewUrl || "";
   const albumArt = spotifyTrack.albumArt || previewMedia.albumArt || generatedAlbumArt(spotifyTrack.song, spotifyTrack.artist, safeColors);
   const auraName = generateAuraName(auraKey, imageBrain);
@@ -1107,7 +1166,7 @@ async function buildFreshAuraResult(auraKey, colors = ["6d5dfc", "19d8ff", "ff3d
     mood: profile.mood,
     song: spotifyTrack.song,
     artist: spotifyTrack.artist,
-    reason: discoveryReason(auraKey).replace(/demo/gi, "live"),
+    reason: "Aura matched this track from a live Spotify search using the image mood, color, and energy.",
     aiInsight: buildAuraInsight({ ...imageBrain, auraKey }, spotifyTrack.song),
     visualBrain: { ...imageBrain, auraKey },
     albumArt,

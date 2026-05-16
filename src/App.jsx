@@ -505,8 +505,8 @@ const US_MAINSTREAM_FILTER = {
   minTrackPopularity: 20
 };
 
-const SPOTIFY_DISCOVERY_QUERY_LIMIT = 16;
-const SPOTIFY_DISCOVERY_PICK_POOL = 90;
+const SPOTIFY_DISCOVERY_QUERY_LIMIT = 5;
+const SPOTIFY_DISCOVERY_PICK_POOL = 35;
 
 function scoreSpotifyCandidate(track = {}) {
   const popularity = Number(track.popularity ?? 0);
@@ -660,7 +660,7 @@ const AURA_DISCOVERY = {
       "gothic electronic cold wave"
     ],
     reasons: [
-      "This match was discovered live from the dark, textured side of the aura — not pulled from the demo pool.",
+      "This match was discovered live from the dark, textured side of the aura.",
       "The image reads shadowy and atmospheric, so Aura searched for a fresh track with late-night pressure.",
       "This track fits the low-light texture and emotional static inside the photo."
     ]
@@ -690,7 +690,7 @@ const AURA_DISCOVERY = {
     reasons: [
       "Aura searched fresh warm and dreamy tracks because the photo feels soft, nostalgic, and glowing.",
       "This match carries the same golden emotional temperature as the image.",
-      "The colors feel warm and intimate, so Aura pulled a fresh soft track instead of a demo pick."
+      "The colors feel warm and intimate, so Aura pulled a fresh soft track."
     ]
   },
   editorialLuxury: {
@@ -981,90 +981,73 @@ async function fetchDeezerDiscovery(auraKey, excludedKeys = new Set(), genreSett
 async function buildFreshAuraResult(auraKey, colors = ["6d5dfc", "19d8ff", "ff3df2"], genreSettings = DEFAULT_GENRE_SETTINGS, imageBrain = null) {
   const profile = AURA_PROFILES[auraKey] || AURA_PROFILES.grungeNoir;
   const safeColors = colors?.length >= 3 ? colors : profile.colorFallback;
-  const excludedKeys = getRecentSongKeys(28);
+  const excludedKeys = getRecentSongKeys(32);
 
-  // Spotify is now the eligibility gate. Apple/iTunes and Deezer are only used later
-  // to fill missing 30-second previews/artwork for the exact Spotify-approved song.
-  const discovered = await fetchSpotifyDiscovery(auraKey, excludedKeys, genreSettings, imageBrain);
+  // Production rule: no local/demo song pool. Every result must start from Spotify discovery.
+  // Apple/iTunes + Deezer are only used to locate a playable 30-second preview for the exact Spotify track.
+  let finalMedia = null;
+  const attemptedKeys = new Set(excludedKeys);
 
-  if (!discovered?.song || !discovered?.artist) {
-    console.warn("No Spotify-approved live discovery result found. Using a same-genre emergency fallback.");
-    const availableIndexes = profile.songs
-      .map((songPack, index) => ({ songPack, index }))
-      .filter(({ songPack }) => !isExcludedTrack(songPack[0], songPack[1], excludedKeys))
-      .filter(({ songPack }) => isTrackAllowedByGenre(songPack[0], songPack[1], {}, genreSettings, true));
-    const randomSongIndex = availableIndexes.length
-      ? randomItem(availableIndexes).index
-      : Math.floor(Math.random() * profile.songs.length);
-    return buildResult(auraKey, randomSongIndex, safeColors, true, imageBrain, genreSettings);
-  }
+  for (let attempt = 0; attempt < 7; attempt += 1) {
+    const discovered = await fetchSpotifyDiscovery(auraKey, attemptedKeys, genreSettings, imageBrain);
 
-  const spotifyMedia = await fetchSpotifyMedia(discovered.song, discovered.artist);
-  const spotifyProof = {
-    ...discovered,
-    ...spotifyMedia,
-    spotifyTrackId: discovered.spotifyTrackId || spotifyMedia.spotifyTrackId,
-    spotifyUrl: discovered.spotifyUrl || spotifyMedia.spotifyUrl,
-    popularity: discovered.popularity ?? spotifyMedia.popularity,
-    artistFollowers: discovered.artistFollowers ?? spotifyMedia.artistFollowers,
-    availableMarkets: discovered.availableMarkets || spotifyMedia.availableMarkets || [],
-    genres: discovered.genres?.length ? discovered.genres : spotifyMedia.genres || [],
-    spotifyVerified: true,
-    genreKey: discovered.genreKey
-  };
+    if (!discovered?.song || !discovered?.artist) break;
 
-  if (!isUsMainstreamEligible(spotifyProof, true) || !isTrackAllowedByGenre(discovered.song, discovered.artist, spotifyProof, genreSettings, true)) {
-    console.warn("Spotify discovery rejected after final validation", discovered.song, discovered.artist);
-    const availableIndexes = profile.songs
-      .map((songPack, index) => ({ songPack, index }))
-      .filter(({ songPack }) => !isExcludedTrack(songPack[0], songPack[1], excludedKeys))
-      .filter(({ songPack }) => isTrackAllowedByGenre(songPack[0], songPack[1], {}, genreSettings, true));
-    const randomSongIndex = availableIndexes.length
-      ? randomItem(availableIndexes).index
-      : Math.floor(Math.random() * profile.songs.length);
-    return buildResult(auraKey, randomSongIndex, safeColors, true, imageBrain, genreSettings);
-  }
+    const key = normalizeTrackKey(discovered.song, discovered.artist);
+    attemptedKeys.add(key);
 
-  const previewMedia = discovered.previewUrl ? {} : await fetchSongMedia(discovered.song, discovered.artist);
-  const media = {
-    ...spotifyMedia,
-    ...previewMedia,
-    ...discovered,
-    albumArt: discovered.albumArt || spotifyMedia.albumArt || previewMedia.albumArt,
-    previewUrl: discovered.previewUrl || previewMedia.previewUrl || spotifyMedia.previewUrl || "",
-    spotifyUrl: discovered.spotifyUrl || spotifyMedia.spotifyUrl || `https://open.spotify.com/search/${encodeURIComponent(`${discovered.song} ${discovered.artist}`)}`,
-    collectionName: discovered.collectionName || spotifyMedia.collectionName || previewMedia.collectionName || "",
-    artistFollowers: discovered.artistFollowers ?? spotifyMedia.artistFollowers ?? 0,
-    popularity: discovered.popularity ?? spotifyMedia.popularity ?? null,
-    genres: discovered.genres?.length ? discovered.genres : spotifyMedia.genres || [],
-    availableMarkets: discovered.availableMarkets || spotifyMedia.availableMarkets || [],
-    spotifyVerified: true
-  };
+    const spotifyMedia = await fetchSpotifyMedia(discovered.song, discovered.artist);
+    const spotifyProof = {
+      ...discovered,
+      ...spotifyMedia,
+      spotifyTrackId: discovered.spotifyTrackId || spotifyMedia.spotifyTrackId,
+      spotifyUrl: discovered.spotifyUrl || spotifyMedia.spotifyUrl,
+      popularity: discovered.popularity ?? spotifyMedia.popularity,
+      artistFollowers: discovered.artistFollowers ?? spotifyMedia.artistFollowers,
+      availableMarkets: discovered.availableMarkets || spotifyMedia.availableMarkets || [],
+      genres: discovered.genres?.length ? discovered.genres : spotifyMedia.genres || [],
+      spotifyVerified: true,
+      genreKey: discovered.genreKey
+    };
 
-  let finalMedia = media;
+    if (!isUsMainstreamEligible(spotifyProof, true)) continue;
+    if (!isTrackAllowedByGenre(discovered.song, discovered.artist, spotifyProof, genreSettings, true)) continue;
 
-  // Hard guarantee: the Play Preview button should only receive a track with a real preview URL.
-  // Spotify often returns album art + metadata but a null preview_url, so if the selected
-  // Spotify-approved track has no playable audio, swap to a same-aura/same-genre US preview result.
-  if (!finalMedia.previewUrl) {
-    const playableFallback =
-      await fetchItunesDiscovery(auraKey, excludedKeys, genreSettings, imageBrain) ||
-      await fetchDeezerDiscovery(auraKey, excludedKeys, genreSettings, imageBrain);
+    const previewMedia = discovered.previewUrl ? {} : await fetchSongMedia(discovered.song, discovered.artist);
+    const media = {
+      ...spotifyMedia,
+      ...previewMedia,
+      ...discovered,
+      song: discovered.song,
+      artist: discovered.artist,
+      albumArt: discovered.albumArt || spotifyMedia.albumArt || previewMedia.albumArt || "",
+      previewUrl: discovered.previewUrl || previewMedia.previewUrl || spotifyMedia.previewUrl || "",
+      spotifyUrl: discovered.spotifyUrl || spotifyMedia.spotifyUrl || `https://open.spotify.com/search/${encodeURIComponent(`${discovered.song} ${discovered.artist}`)}`,
+      collectionName: discovered.collectionName || spotifyMedia.collectionName || previewMedia.collectionName || "",
+      artistFollowers: discovered.artistFollowers ?? spotifyMedia.artistFollowers ?? 0,
+      popularity: discovered.popularity ?? spotifyMedia.popularity ?? null,
+      genres: discovered.genres?.length ? discovered.genres : spotifyMedia.genres || [],
+      availableMarkets: discovered.availableMarkets || spotifyMedia.availableMarkets || [],
+      spotifyVerified: true
+    };
 
-    if (playableFallback?.previewUrl) {
-      finalMedia = {
-        ...finalMedia,
-        ...playableFallback,
-        albumArt: playableFallback.albumArt || finalMedia.albumArt,
-        previewUrl: playableFallback.previewUrl,
-        spotifyUrl: finalMedia.spotifyUrl || `https://open.spotify.com/search/${encodeURIComponent(`${playableFallback.song} ${playableFallback.artist}`)}`
-      };
+    // Prefer a playable track. If this Spotify song has no preview anywhere, keep searching.
+    if (media.previewUrl) {
+      finalMedia = media;
+      break;
     }
+
+    // Keep one valid Spotify result in reserve so the app never uses fake/demo tracks.
+    if (!finalMedia) finalMedia = media;
+  }
+
+  if (!finalMedia?.song || !finalMedia?.artist) {
+    throw new Error("No Spotify-approved track was found. Try another photo or enable more genres.");
   }
 
   const auraName = generateAuraName(auraKey, imageBrain);
-  const finalSong = finalMedia.song || media.song;
-  const finalArtist = finalMedia.artist || media.artist;
+  const finalSong = finalMedia.song;
+  const finalArtist = finalMedia.artist;
 
   return {
     auraKey,
@@ -1091,6 +1074,7 @@ async function buildFreshAuraResult(auraKey, colors = ["6d5dfc", "19d8ff", "ff3d
     usMainstreamVerified: isUsMainstreamEligible(finalMedia, true)
   };
 }
+
 function pickAuraFromColors(stats) {
   const { brightness, warmth, saturation, contrast, red, green, blue, colorSpread } = stats;
   const scores = {
@@ -2361,9 +2345,8 @@ const entry = {
     }
 
     clearRevealTimers();
-    autoPlayAfterMatchRef.current = true;
+    autoPlayAfterMatchRef.current = false;
     lastAutoPlayedPreviewRef.current = "";
-    await unlockMobileAudio();
 
     setLoading(true);
     setResult(null);
@@ -2383,20 +2366,20 @@ const entry = {
         setLoading(false);
         setUnlocking(false);
         setUnlockResult(built);
-      }, 950);
+      }, 450);
 
       finalRevealTimerRef.current = window.setTimeout(() => {
         setResult(built);
         setUnlockResult(null);
         setUnlocking(true);
         window.setTimeout(() => setUnlocking(false), 780);
-        scheduleAutoPlay(built, 240);
-      }, 3650);
+        // No forced autoplay: user tap plays the preview reliably on desktop and mobile.
+      }, 1150);
     } catch (error) {
       console.warn("Aura analysis failed", error);
       setLoading(false);
       setUnlocking(false);
-      setPreviewError("Aura had trouble reading this image. Try another photo.");
+      setPreviewError(error?.message || "Aura could not find a Spotify match. Try another photo or enable more genres.");
       autoPlayAfterMatchRef.current = false;
     }
   }
@@ -2444,9 +2427,8 @@ const entry = {
     }
 
     clearRevealTimers();
-    autoPlayAfterMatchRef.current = true;
+    autoPlayAfterMatchRef.current = false;
     lastAutoPlayedPreviewRef.current = "";
-    await unlockMobileAudio();
 
     setLiveCapturing(true);
     setLoading(true);
@@ -2479,15 +2461,15 @@ const entry = {
         setUnlocking(false);
         setUnlockResult(built);
         setLiveCapturing(false);
-      }, 950);
+      }, 450);
 
       finalRevealTimerRef.current = window.setTimeout(() => {
         setResult(built);
         setUnlockResult(null);
         setUnlocking(true);
         window.setTimeout(() => setUnlocking(false), 780);
-        scheduleAutoPlay(built, 240);
-      }, 3650);
+        // No forced autoplay: user tap plays the preview reliably on desktop and mobile.
+      }, 1150);
     } catch (error) {
       console.warn("Live aura capture failed", error);
       setLoading(false);
@@ -2549,7 +2531,7 @@ const entry = {
     if (!currentResult) return "";
 
     setPreviewLoading(true);
-    setPreviewError("..");
+    setPreviewError("");
 
     const media = await fetchSongMedia(currentResult.song, currentResult.artist);
     setPreviewLoading(false);
@@ -2597,10 +2579,8 @@ const entry = {
         audio.load();
       }
 
-      // Mobile Safari/Chrome allow muted playback more reliably after the user's Aura tap.
-      // Manual button taps stay audible immediately.
-      audio.muted = !!autoStarted;
-      audio.volume = autoStarted ? 0 : 1;
+      audio.muted = false;
+      audio.volume = 1;
 
       const playPromise = audio.play();
       if (playPromise !== undefined) await playPromise;
@@ -2611,13 +2591,6 @@ const entry = {
       setAudioReactive(true);
       setPreviewError("");
 
-      if (autoStarted) {
-        window.setTimeout(() => {
-          if (requestId !== playbackRequestRef.current) return;
-          audio.muted = false;
-          audio.volume = 1;
-        }, 180);
-      }
 
       return true;
     } catch (error) {
@@ -2625,7 +2598,7 @@ const entry = {
       if (requestId === playbackRequestRef.current) {
         setPlaying(false);
         setAudioReactive(false);
-        setPreviewError(autoStarted ? "Tap play to start the preview." : "Preview could not play. Try Similar Track.");
+        setPreviewError("Preview could not play. Try another match.");
       }
       return false;
     } finally {
@@ -2657,7 +2630,7 @@ const entry = {
       }
 
       if (!previewUrl) {
-        setPreviewError("No playable preview found for this match. Try Similar Track.");
+        setPreviewError("This Spotify track has no playable preview. Tap Similar Track for another Spotify match.");
         return;
       }
 
@@ -2666,7 +2639,7 @@ const entry = {
       console.warn("Preview playback failed", error);
       setPlaying(false);
       setAudioReactive(false);
-      setPreviewError("Preview could not play. Try Similar Track.");
+      setPreviewError("Preview could not play. Try another match.");
     }
   }
 
@@ -2723,7 +2696,7 @@ const entry = {
           setPlaying(false);
           setAudioReactive(false);
           setPreviewLoading(false);
-          setPreviewError("This preview link failed to load. Tap Similar Track for another playable match.");
+          setPreviewError("This preview link failed to load. Tap Similar Track for another Spotify match.");
         }}
       />
 
@@ -3313,13 +3286,13 @@ const entry = {
 
                   <button onClick={togglePreview} className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-[linear-gradient(90deg,var(--aura-a),var(--aura-b),var(--aura-c))] px-4 py-3.5 text-sm font-black text-black shadow-[0_0_42px_color-mix(in_srgb,var(--aura-b)_45%,transparent)] transition duration-500 ease-out hover:scale-[1.015] active:scale-[0.985]">
                     {playing ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
-                    {previewLoading ? "Finding preview..." : playing ? "Fade out preview" : "Play preview"}
+                    {previewLoading ? "Loading preview..." : playing ? "Pause preview" : "Play preview"}
                   </button>
 
                   
 
                   <a href={result.spotifyUrl} target="_blank" rel="noreferrer" className="ios-glass mt-3 flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-white/78 transition duration-500 ease-out hover:scale-[1.015] active:scale-[0.985]">
-                    Open song search <ExternalLink size={15} />
+                    Open on Spotify <ExternalLink size={15} />
                   </a>
                 </div>
 
@@ -3348,7 +3321,7 @@ const entry = {
           </div>
         )}
 
-        <footer className="pb-1 text-center text-[11px] text-white/28">Aura v0.8 · preview-stable</footer>
+        <footer className="pb-1 text-center text-[11px] text-white/28">Aura</footer>
       </section>
 
       <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={(event) => handleFile(event.target.files?.[0])} />

@@ -170,3 +170,41 @@ a {
     animation: none !important;
   }
 }
+
+/* Production performance patch: reduce GPU-heavy glass/blur work, especially on phones. */
+@media (max-width: 768px) {
+  .aura-gradient-mesh,
+  .aura-trail,
+  .aura-color-bloom {
+    animation: none !important;
+    opacity: .22 !important;
+    filter: blur(18px) !important;
+  }
+
+  .aura-halo,
+  .aura-sphere::before,
+  .aura-sphere::after {
+    filter: blur(10px) !important;
+    animation-duration: 14s !important;
+  }
+
+  .aura-result-hero img {
+    height: 300px !important;
+  }
+
+  .ios-glass,
+  .aura-result-card,
+  .aura-song-pill {
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+  }
+}

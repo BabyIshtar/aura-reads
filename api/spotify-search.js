@@ -1,8 +1,11 @@
-let cachedToken = null;
-let cachedTokenExpiresAt = 0;
+let cachedSpotifyToken = null;
+let cachedSpotifyTokenExpiresAt = 0;
 
 async function getSpotifyToken(clientId, clientSecret) {
-  if (cachedToken && Date.now() < cachedTokenExpiresAt) return cachedToken;
+  const now = Date.now();
+  if (cachedSpotifyToken && cachedSpotifyTokenExpiresAt > now + 30000) {
+    return cachedSpotifyToken;
+  }
 
   const tokenResponse = await fetch("https://accounts.spotify.com/api/token", {
     method: "POST",
@@ -15,20 +18,22 @@ async function getSpotifyToken(clientId, clientSecret) {
 
   if (!tokenResponse.ok) {
     const message = await tokenResponse.text();
-    const error = new Error(message || "Spotify token failed");
+    const error = new Error("Spotify token failed");
     error.status = tokenResponse.status;
+    error.details = message;
     throw error;
   }
 
   const data = await tokenResponse.json();
-  cachedToken = data.access_token;
-  cachedTokenExpiresAt = Date.now() + Math.max(30, (data.expires_in || 3600) - 120) * 1000;
-  return cachedToken;
+  cachedSpotifyToken = data.access_token;
+  cachedSpotifyTokenExpiresAt = now + Math.max(300, Number(data.expires_in || 3600) - 60) * 1000;
+  return cachedSpotifyToken;
 }
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Cache-Control", "s-maxage=120, stale-while-revalidate=600");
 
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
@@ -52,7 +57,7 @@ export default async function handler(req, res) {
 
   try {
     const access_token = await getSpotifyToken(clientId, clientSecret);
-    const searchText = q || `track:${song} artist:${artist}`.trim();
+    const searchText = q || [song, artist].filter(Boolean).join(" ");
     const searchUrl = `https://api.spotify.com/v1/search?q=${encodeURIComponent(searchText)}&type=track&market=${encodeURIComponent(market)}&limit=${limit}`;
 
     const searchResponse = await fetch(searchUrl, {
@@ -99,6 +104,6 @@ export default async function handler(req, res) {
       market
     });
   } catch (error) {
-    return res.status(error?.status || 500).json({ error: "Spotify server error", details: error?.message || String(error) });
+    return res.status(error?.status || 500).json({ error: error?.message || "Spotify server error", details: error?.details || String(error) });
   }
 }

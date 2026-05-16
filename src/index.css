@@ -170,24 +170,3 @@ a {
     animation: none !important;
   }
 }
-
-/* Production performance guardrails */
-@media (max-width: 768px), (prefers-reduced-motion: reduce) {
-  .aura-color-bloom,
-  .aura-orb-trail,
-  .orb-particle,
-  .music-unlocked-particle {
-    animation-duration: 14s !important;
-    filter: blur(18px) !important;
-    opacity: 0.38 !important;
-  }
-
-  .ios-glass {
-    backdrop-filter: blur(14px) saturate(130%) !important;
-    -webkit-backdrop-filter: blur(14px) saturate(130%) !important;
-  }
-
-  * {
-    scroll-behavior: auto !important;
-  }
-}

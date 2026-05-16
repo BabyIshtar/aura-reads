@@ -3468,7 +3468,7 @@ const entry = {
                       <img src={result.uploadedImage || image} alt="" aria-hidden="true" className="pointer-events-none absolute inset-0 h-full w-full rounded-[1.8rem] object-cover opacity-22 blur-2xl scale-105" />
                     )}
                     <div className="flex min-h-[420px] w-full items-center justify-center rounded-[1.8rem] bg-black/55 p-1 sm:min-h-[520px]">
-                      <img src={result.uploadedImage || image} alt="Aura result" onError={(event) => { event.currentTarget.style.display = "none"; }} className="max-h-[78vh] min-h-[400px] w-full rounded-[1.45rem] object-contain shadow-2xl shadow-black/45 sm:min-h-[500px]" loading="eager" />
+                      <img src={result.uploadedImage || image} alt="Aura result" data-aura-uploaded-image="true" onError={(event) => { event.currentTarget.style.display = "none"; }} className="max-h-[78vh] min-h-[400px] w-full rounded-[1.45rem] object-contain shadow-2xl shadow-black/45 sm:min-h-[500px]" loading="eager" />
                     </div>
                     <div className="absolute inset-0 rounded-[1.8rem] bg-[radial-gradient(circle_at_24%_18%,rgba(255,255,255,.16),transparent_25%),linear-gradient(to_top,#050607,rgba(0,0,0,.16),transparent)]" />
                     <button onClick={() => setImmersiveMode(true)} className="group absolute bottom-4 left-4 transition duration-300 active:scale-95" aria-label="Open immersive playback mode">

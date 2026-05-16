@@ -298,3 +298,49 @@ a {
     transform: none;
   }
 }
+
+
+/* ===== AURA UPLOADED IMAGE FIT FIX ===== */
+
+/* User-uploaded image should show full composition, not crop awkwardly. */
+.aura-uploaded-image,
+.aura-user-image,
+img[alt*="upload" i],
+img[alt*="uploaded" i],
+img[alt*="photo" i],
+img[alt*="Aura result" i] {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain !important;
+  object-position: center center !important;
+  display: block !important;
+  background: rgba(5, 6, 10, .34);
+}
+
+/* Keep user image frame clean, centered, and photo-first. */
+.aura-uploaded-image-frame,
+.aura-user-image-frame {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  overflow: hidden !important;
+  background:
+    radial-gradient(circle at center, rgba(255,255,255,.045), transparent 55%),
+    rgba(5, 6, 10, .38) !important;
+}
+
+/* Album covers should still fill their small artwork tiles. */
+.aura-album-art,
+img[alt*="album" i],
+img[alt*="cover" i] {
+  object-fit: cover !important;
+}
+
+img[data-aura-uploaded-image="true"] {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain !important;
+  object-position: center center !important;
+  display: block !important;
+  background: rgba(5, 6, 10, .34) !important;
+}

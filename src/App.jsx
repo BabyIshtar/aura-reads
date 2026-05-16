@@ -1344,8 +1344,9 @@ function extractImageMood(imageSrc) {
     };
 
     img.onerror = () => resolve({
-      auraKey: "midnight",
-      colors: ["6d5dfc", "19d8ff", "ff3df2"]
+      auraKey: "grungeNoir",
+      colors: ["6d5dfc", "19d8ff", "ff3df2"],
+      visualBrain: describeVisualBrain({})
     });
 
     img.src = imageSrc;
@@ -2220,8 +2221,9 @@ export default function App() {
     }
   });
 
-  const colors = liveCameraOpen ? liveAura.colors : (result?.colors || unlockResult?.colors || imageColors);
-  const environment = AURA_ENVIRONMENTS[(liveCameraOpen ? liveAura.auraKey : (result?.auraKey || unlockResult?.auraKey)) || "grungeNoir"];
+  const colors = liveCameraOpen ? (liveAura?.colors || imageColors) : (result?.colors || unlockResult?.colors || imageColors);
+  const environmentKey = liveCameraOpen ? liveAura?.auraKey : (result?.auraKey || unlockResult?.auraKey);
+  const environment = AURA_ENVIRONMENTS[environmentKey] || AURA_ENVIRONMENTS.grungeNoir;
 
   const gradientStyle = useMemo(() => ({
     "--aura-a": readableAccent(colors[0]),

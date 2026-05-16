@@ -1382,6 +1382,7 @@ function scanVideoMood(video) {
   const meanBrightness = brightnessTotal / count;
   const contrast = Math.sqrt(Math.max(0, brightnessSquared / count - meanBrightness * meanBrightness));
   const colorSpread = Math.max(red, green, blue) - Math.min(red, green, blue);
+  const edgeIntensity = 0;
 
   colorful.sort((a, b) => (b[3] + b[4] * 0.22) - (a[3] + a[4] * 0.22));
 
@@ -2674,6 +2675,30 @@ const entry = {
   return (
     <main style={gradientStyle} className="relative min-h-screen overflow-hidden bg-[#07080a] text-white">
       <style>{auraRuntimeCss}</style>
+      <audio
+        ref={audioRef}
+        playsInline
+        preload="auto"
+        className="hidden"
+        onCanPlay={() => setPreviewLoading(false)}
+        onPlay={() => {
+          setPlaying(true);
+          setAudioReactive(true);
+        }}
+        onPause={() => {
+          setPlaying(false);
+          setAudioReactive(false);
+        }}
+        onEnded={() => {
+          setPlaying(false);
+          setAudioReactive(false);
+        }}
+        onError={() => {
+          setPlaying(false);
+          setAudioReactive(false);
+          setPreviewLoading(false);
+        }}
+      />
 
       <motion.div
         className="aura-gradient-mesh pointer-events-none fixed inset-0"
@@ -3269,30 +3294,6 @@ const entry = {
                   <a href={result.spotifyUrl} target="_blank" rel="noreferrer" className="ios-glass mt-3 flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-white/78 transition duration-500 ease-out hover:scale-[1.015] active:scale-[0.985]">
                     Open song search <ExternalLink size={15} />
                   </a>
-
-                  <audio
-                    ref={audioRef}
-                    playsInline
-                    preload="auto"
-                    onCanPlay={() => setPreviewLoading(false)}
-                    onPlay={() => {
-                      setPlaying(true);
-                      setAudioReactive(true);
-                    }}
-                    onPause={() => {
-                      setPlaying(false);
-                      setAudioReactive(false);
-                    }}
-                    onEnded={() => {
-                      setPlaying(false);
-                      setAudioReactive(false);
-                    }}
-                    onError={() => {
-                      setPlaying(false);
-                      setAudioReactive(false);
-                      setPreviewLoading(false);
-                    }}
-                  />
                 </div>
 
                 <div className="mt-3 grid grid-cols-2 gap-3">

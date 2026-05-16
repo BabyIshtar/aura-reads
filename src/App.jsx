@@ -1041,7 +1041,30 @@ async function buildFreshAuraResult(auraKey, colors = ["6d5dfc", "19d8ff", "ff3d
     spotifyVerified: true
   };
 
+  let finalMedia = media;
+
+  // Hard guarantee: the Play Preview button should only receive a track with a real preview URL.
+  // Spotify often returns album art + metadata but a null preview_url, so if the selected
+  // Spotify-approved track has no playable audio, swap to a same-aura/same-genre US preview result.
+  if (!finalMedia.previewUrl) {
+    const playableFallback =
+      await fetchItunesDiscovery(auraKey, excludedKeys, genreSettings, imageBrain) ||
+      await fetchDeezerDiscovery(auraKey, excludedKeys, genreSettings, imageBrain);
+
+    if (playableFallback?.previewUrl) {
+      finalMedia = {
+        ...finalMedia,
+        ...playableFallback,
+        albumArt: playableFallback.albumArt || finalMedia.albumArt,
+        previewUrl: playableFallback.previewUrl,
+        spotifyUrl: finalMedia.spotifyUrl || `https://open.spotify.com/search/${encodeURIComponent(`${playableFallback.song} ${playableFallback.artist}`)}`
+      };
+    }
+  }
+
   const auraName = generateAuraName(auraKey, imageBrain);
+  const finalSong = finalMedia.song || media.song;
+  const finalArtist = finalMedia.artist || media.artist;
 
   return {
     auraKey,
@@ -1049,23 +1072,23 @@ async function buildFreshAuraResult(auraKey, colors = ["6d5dfc", "19d8ff", "ff3d
     colors: safeColors,
     aura: auraName,
     mood: profile.mood,
-    song: media.song,
-    artist: media.artist,
+    song: finalSong,
+    artist: finalArtist,
     reason: discoveryReason(auraKey),
-    aiInsight: buildAuraInsight({ ...imageBrain, auraKey }, media.song),
+    aiInsight: buildAuraInsight({ ...imageBrain, auraKey }, finalSong),
     visualBrain: { ...imageBrain, auraKey },
-    albumArt: media.albumArt || generatedAlbumArt(media.song, media.artist, safeColors),
-    previewUrl: media.previewUrl || "",
-    appleMusicUrl: media.appleMusicUrl || "",
-    collectionName: media.collectionName || "",
-    spotifyUrl: media.spotifyUrl || `https://open.spotify.com/search/${encodeURIComponent(`${media.song} ${media.artist}`)}`,
-    spotifyTrackId: media.spotifyTrackId || "",
-    popularity: media.popularity ?? null,
-    releaseYear: media.releaseYear || "",
-    genres: media.genres || [],
-    artistImage: media.artistImage || "",
-    artistFollowers: media.artistFollowers ?? 0,
-    usMainstreamVerified: isUsMainstreamEligible(media, true)
+    albumArt: finalMedia.albumArt || generatedAlbumArt(finalSong, finalArtist, safeColors),
+    previewUrl: finalMedia.previewUrl || "",
+    appleMusicUrl: finalMedia.appleMusicUrl || "",
+    collectionName: finalMedia.collectionName || "",
+    spotifyUrl: finalMedia.spotifyUrl || `https://open.spotify.com/search/${encodeURIComponent(`${finalSong} ${finalArtist}`)}`,
+    spotifyTrackId: finalMedia.spotifyTrackId || "",
+    popularity: finalMedia.popularity ?? null,
+    releaseYear: finalMedia.releaseYear || "",
+    genres: finalMedia.genres || [],
+    artistImage: finalMedia.artistImage || "",
+    artistFollowers: finalMedia.artistFollowers ?? 0,
+    usMainstreamVerified: isUsMainstreamEligible(finalMedia, true)
   };
 }
 function pickAuraFromColors(stats) {
@@ -2018,36 +2041,6 @@ const auraRuntimeCss = `
         inset 0 -40px 76px rgba(0,0,0,.55);
     }
   }
-
-  /* SAFE MOBILE PERFORMANCE PATCH: keeps working audio untouched */
-  @media (max-width: 768px) {
-    .aura-sphere::before,
-    .aura-unlock-wash,
-    .aura-unlock-sweep {
-      display: none !important;
-    }
-
-    .aura-gradient-mesh {
-      filter: blur(34px) !important;
-      opacity: 0.34 !important;
-      transform: translate3d(0,0,0) scale(0.92) !important;
-    }
-
-    .aura-bg-orb,
-    .aura-light-trail,
-    .aura-floating-particle {
-      animation-duration: 18s !important;
-      filter: blur(18px) !important;
-      opacity: 0.32 !important;
-    }
-
-    .aura-glass,
-    .aura-result-card {
-      backdrop-filter: blur(14px) !important;
-      -webkit-backdrop-filter: blur(14px) !important;
-    }
-  }
-
 `;
 
 
@@ -3355,7 +3348,7 @@ const entry = {
           </div>
         )}
 
-        <footer className="pb-1 text-center text-[11px] text-white/28">Aura v0.7 · smarter aura engine</footer>
+        <footer className="pb-1 text-center text-[11px] text-white/28">Aura v0.8 · preview-stable</footer>
       </section>
 
       <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={(event) => handleFile(event.target.files?.[0])} />

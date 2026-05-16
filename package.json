@@ -1,0 +1,21 @@
+{
+  "name": "aura-app",
+  "private": true,
+  "version": "0.0.7",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "latest",
+    "@vitejs/plugin-react": "^6.0.1",
+    "framer-motion": "^12.38.0",
+    "lucide-react": "^1.14.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "tailwindcss": "latest",
+    "vite": "^8.0.12"
+  }
+}

@@ -1,0 +1,206 @@
+let cachedSpotifyToken = null;
+let cachedSpotifyTokenExpiresAt = 0;
+
+const AURA_QUERY_MAP = {
+  grungeNoir: ["dark alternative", "moody rock", "darkwave", "shoegaze", "post punk", "deftones radio"],
+  neonNightlife: ["night drive", "dark pop", "melodic rap", "electronic pop", "club rap", "after hours"],
+  warmDreamscape: ["r&b", "neo soul", "dream pop", "indie soul", "warm pop", "chill r&b"],
+  editorialLuxury: ["alternative r&b", "art pop", "minimal electronic", "sleek pop", "fashion music", "cinematic pop"],
+  stormPressure: ["moody hip hop", "atmospheric rap", "blue electronic", "ambient pop", "cinematic rap", "cloud rap"]
+};
+
+const GENRE_QUERY_MAP = {
+  rbSoul: ["alternative r&b", "neo soul", "modern r&b", "smooth r&b"],
+  rapHipHop: ["hip hop", "rap", "melodic rap", "cloud rap"],
+  indieAlt: ["indie alternative", "indie pop", "bedroom pop", "shoegaze"],
+  electronic: ["electronic", "synthwave", "darkwave", "ambient electronic"],
+  pop: ["pop hits", "dark pop", "dream pop", "alt pop"],
+  rock: ["alternative rock", "modern rock", "post punk", "grunge rock"],
+  cinematic: ["cinematic atmospheric", "movie soundtrack", "moody soundtrack", "cinematic electronic"]
+};
+
+async function getSpotifyToken(clientId, clientSecret) {
+  const now = Date.now();
+  if (cachedSpotifyToken && cachedSpotifyTokenExpiresAt > now + 30000) return cachedSpotifyToken;
+
+  const tokenResponse = await fetch("https://accounts.spotify.com/api/token", {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body: "grant_type=client_credentials"
+  });
+
+  if (!tokenResponse.ok) {
+    const details = await tokenResponse.text();
+    const error = new Error("Spotify token request failed");
+    error.status = tokenResponse.status;
+    error.details = details;
+    throw error;
+  }
+
+  const data = await tokenResponse.json();
+  cachedSpotifyToken = data.access_token;
+  cachedSpotifyTokenExpiresAt = now + Math.max(300, Number(data.expires_in || 3600) - 60) * 1000;
+  return cachedSpotifyToken;
+}
+
+function uniq(values) {
+  const seen = new Set();
+  return values.map((v) => String(v || "").trim()).filter((v) => {
+    const key = v.toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function cleanTrackKey(song = "", artist = "") {
+  return `${song}::${artist}`.toLowerCase().replace(/[^a-z0-9:]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function buildQueries({ auraKey, genres, visualTerms }) {
+  const auraQueries = AURA_QUERY_MAP[auraKey] || AURA_QUERY_MAP.neonNightlife;
+  const genreQueries = genres.flatMap((key) => GENRE_QUERY_MAP[key] || []);
+  const visualQueries = visualTerms.slice(0, 4).map((term) => `${term} music`);
+  const rescueQueries = [
+    "today's top hits",
+    "US top hits",
+    "popular songs",
+    "viral hits",
+    "pop hits",
+    "rap hits",
+    "r&b hits",
+    "alternative hits"
+  ];
+
+  return uniq([
+    ...auraQueries,
+    ...genreQueries,
+    ...visualQueries,
+    ...auraQueries.map((q) => `${q} US popular`),
+    ...rescueQueries
+  ]).slice(0, 18);
+}
+
+async function spotifyGet(url, token) {
+  const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!response.ok) {
+    const details = await response.text();
+    const error = new Error("Spotify API request failed");
+    error.status = response.status;
+    error.details = details;
+    throw error;
+  }
+  return response.json();
+}
+
+function scoreTrack(track, artist) {
+  const popularity = Number(track?.popularity || 0);
+  const followers = Number(artist?.followers?.total || 0);
+  const followerScore = Math.min(45, Math.log10(Math.max(1, followers)) * 7);
+  const previewBonus = track?.preview_url ? 30 : 0;
+  const imageBonus = track?.album?.images?.length ? 12 : 0;
+  const marketBonus = Array.isArray(track?.available_markets) && track.available_markets.includes("US") ? 10 : 0;
+  return popularity + followerScore + previewBonus + imageBonus + marketBonus + Math.random() * 12;
+}
+
+export default async function handler(req, res) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Cache-Control", "no-store");
+
+  if (req.method === "OPTIONS") return res.status(204).end();
+  if (req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
+
+  const clientId = process.env.SPOTIFY_CLIENT_ID;
+  const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
+  if (!clientId || !clientSecret) return res.status(500).json({ error: "Missing Spotify environment variables" });
+
+  const auraKey = String(req.query.auraKey || "neonNightlife");
+  const market = String(req.query.market || "US").toUpperCase();
+  const genres = String(req.query.genres || "").split(",").map((v) => v.trim()).filter(Boolean);
+  const visualTerms = String(req.query.visualTerms || "").split(",").map((v) => v.trim()).filter(Boolean);
+  const excluded = new Set(String(req.query.exclude || "").split("|").map((v) => v.trim()).filter(Boolean));
+
+  try {
+    const token = await getSpotifyToken(clientId, clientSecret);
+    const queries = buildQueries({ auraKey, genres, visualTerms });
+    const candidates = [];
+    const seen = new Set();
+    const artistIds = new Set();
+    const rawTracks = [];
+
+    for (const query of queries) {
+      const url = `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&market=${encodeURIComponent(market)}&limit=20`;
+      const data = await spotifyGet(url, token);
+      const tracks = data?.tracks?.items || [];
+
+      for (const track of tracks) {
+        const artist = track?.artists?.[0];
+        const key = cleanTrackKey(track?.name, artist?.name);
+        if (!track?.name || !artist?.name || !artist?.id) continue;
+        if (seen.has(key) || excluded.has(key)) continue;
+        if (Array.isArray(track.available_markets) && track.available_markets.length && !track.available_markets.includes(market)) continue;
+        if (!track.album?.images?.length) continue;
+        seen.add(key);
+        artistIds.add(artist.id);
+        rawTracks.push(track);
+      }
+
+      if (rawTracks.length >= 60) break;
+    }
+
+    const artistList = Array.from(artistIds).slice(0, 50);
+    let artistsById = {};
+    if (artistList.length) {
+      const data = await spotifyGet(`https://api.spotify.com/v1/artists?ids=${artistList.join(",")}`, token);
+      artistsById = Object.fromEntries((data?.artists || []).filter(Boolean).map((artist) => [artist.id, artist]));
+    }
+
+    for (const track of rawTracks) {
+      const mainArtist = artistsById[track.artists?.[0]?.id] || null;
+      candidates.push({ track, artist: mainArtist, score: scoreTrack(track, mainArtist) });
+    }
+
+    if (!candidates.length) {
+      return res.status(404).json({ error: "Spotify did not return a usable track", queriesTried: queries });
+    }
+
+    const ranked = candidates.sort((a, b) => b.score - a.score).slice(0, 25);
+    const withPreview = ranked.filter((item) => item.track.preview_url);
+    const pickPool = withPreview.length ? withPreview.slice(0, 12) : ranked.slice(0, 12);
+    const picked = pickPool[Math.floor(Math.random() * pickPool.length)] || ranked[0];
+    const track = picked.track;
+    const artist = picked.artist;
+    const images = track.album?.images || [];
+    const releaseDate = track.album?.release_date || "";
+
+    return res.status(200).json({
+      track: {
+        song: track.name,
+        artist: track.artists?.[0]?.name || "Unknown Artist",
+        albumArt: images[0]?.url || images[1]?.url || "",
+        previewUrl: track.preview_url || "",
+        spotifyUrl: track.external_urls?.spotify || "",
+        spotifyTrackId: track.id || "",
+        collectionName: track.album?.name || "",
+        popularity: track.popularity ?? null,
+        releaseYear: releaseDate ? releaseDate.slice(0, 4) : "",
+        genres: artist?.genres || [],
+        artistImage: artist?.images?.[0]?.url || artist?.images?.[1]?.url || "",
+        artistFollowers: artist?.followers?.total ?? 0,
+        availableMarkets: track.available_markets || [],
+        spotifyVerified: true
+      },
+      source: "spotify",
+      queriesTried: queries.slice(0, 8)
+    });
+  } catch (error) {
+    return res.status(error?.status || 500).json({
+      error: error?.message || "Spotify server error",
+      details: error?.details || String(error)
+    });
+  }
+}

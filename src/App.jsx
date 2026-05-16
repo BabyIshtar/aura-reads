@@ -103,6 +103,15 @@ function getAuraDescription(result) {
   return `This aura leans ${mood}. It feels like ${result.song} because the image carries the same color pressure, emotional temperature, and visual rhythm.`;
 }
 
+
+
+function useReadableAuraText(colors = []) {
+  const joined = (colors || []).join("").toLowerCase();
+  const darkHints = ["000", "111", "222", "333", "1a1a1a", "0f0f0f", "black"];
+  return darkHints.some((hint) => joined.includes(hint))
+    ? "text-white drop-shadow-[0_0_18px_rgba(255,255,255,0.85)]"
+    : "text-white drop-shadow-[0_0_18px_rgba(255,255,255,0.55)]";
+}
 function auraTypographyClass(auraKey = "") {
   if (auraKey === "editorialLuxury") return "font-light tracking-[-0.04em]";
   if (auraKey === "neonNightlife") return "font-black tracking-[-0.08em]";
@@ -1214,6 +1223,7 @@ async function fetchSpotifyAuraTrack(auraKey, excludedKeys = new Set(), genreSet
 
 async function buildFreshAuraResult(auraKey, colors = ["6d5dfc", "19d8ff", "ff3df2"], genreSettings = DEFAULT_GENRE_SETTINGS, imageBrain = null) {
   const profile = AURA_PROFILES[auraKey] || AURA_PROFILES.grungeNoir;
+  const readableTextClass = useReadableAuraText(colors);
   const safeColors = colors?.length >= 3 ? colors : profile.colorFallback;
   const excludedKeys = getRecentSongKeys(18);
 
@@ -3465,10 +3475,10 @@ const entry = {
                   <div className="relative">
                     <div className="aura-color-bloom pointer-events-none absolute inset-[-22%] opacity-70" />
                     {(result.uploadedImage || image) && (
-                      <img src={result.uploadedImage || image} alt="" aria-hidden="true" className="pointer-events-none absolute inset-0 h-full w-full rounded-[1.8rem] object-cover opacity-22 blur-2xl scale-105" />
+                      <img src={result.uploadedImage || image} alt="" aria-hidden="true" className="pointer-events-none absolute inset-0 h-full w-full rounded-[1.8rem] object-cover opacity-30 blur-2xl scale-110" />
                     )}
                     <div className="flex min-h-[420px] w-full items-center justify-center rounded-[1.8rem] bg-black/55 p-1 sm:min-h-[520px]">
-                      <img src={result.uploadedImage || image} alt="Aura result" data-aura-uploaded-image="true" onError={(event) => { event.currentTarget.style.display = "none"; }} className="max-h-[78vh] min-h-[400px] w-full rounded-[1.45rem] object-contain shadow-2xl shadow-black/45 sm:min-h-[500px]" loading="eager" />
+                      <img src={result.uploadedImage || image} alt="Aura result" data-aura-uploaded-image="true" onError={(event) => { event.currentTarget.style.display = "none"; }} className="h-full min-h-[520px] w-full rounded-[1.45rem] object-cover object-center shadow-2xl shadow-black/45 sm:min-h-[620px]" loading="eager" />
                     </div>
                     <div className="absolute inset-0 rounded-[1.8rem] bg-[radial-gradient(circle_at_24%_18%,rgba(255,255,255,.16),transparent_25%),linear-gradient(to_top,#050607,rgba(0,0,0,.16),transparent)]" />
                     <button onClick={() => setImmersiveMode(true)} className="group absolute bottom-4 left-4 transition duration-300 active:scale-95" aria-label="Open immersive playback mode">

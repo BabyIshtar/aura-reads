@@ -344,3 +344,25 @@ img[data-aura-uploaded-image="true"] {
   display: block !important;
   background: rgba(5, 6, 10, .34) !important;
 }
+
+
+/* Charcoal texture pass */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.025), rgba(255,255,255,0.01)),
+    radial-gradient(circle at top left, rgba(255,255,255,0.08), transparent 35%),
+    url("https://www.transparenttextures.com/patterns/asfalt-dark.png");
+  opacity: 0.32;
+  mix-blend-mode: overlay;
+  z-index: 0;
+}
+
+.glass-panel,
+.result-card,
+[data-aura-uploaded-image="true"] {
+  filter: contrast(1.02) saturate(1.04);
+}

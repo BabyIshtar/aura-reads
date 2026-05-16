@@ -496,27 +496,39 @@ function generateAuraName(auraKey = "grungeNoir", imageBrain = null) {
 // Public providers do not expose exact total cross-platform play counts.
 // This gate keeps Aura away from obvious low-signal/cover/karaoke results and
 // only accepts tracks with a strong mainstream signal from the provider result.
-const MIN_PUBLIC_ARTIST_SIGNAL = 50000;
-const ITUNES_MAINSTREAM_WINDOW = 24;
+const MIN_PUBLIC_ARTIST_SIGNAL = 100000;
+const ITUNES_MAINSTREAM_WINDOW = 16;
 
 function looksLikeLowQualityMusicResult(song = "", artist = "", collection = "") {
   const text = compactGenreText(`${song} ${artist} ${collection}`);
   const blocked = [
     "karaoke", "tribute", "cover band", "covers", "instrumental version",
     "slowed", "reverb", "sped up", "nightcore", "remix tribute",
-    "sound alike", "made famous by", "originally performed"
+    "sound alike", "made famous by", "originally performed", "tik tok",
+    "tiktok", "8d audio", "lofi version", "tribute to", "the hit crew"
   ];
   return blocked.some((term) => text.includes(term));
 }
 
 function hasMainstreamProviderSignal(item = {}, source = "itunes", index = 0) {
-  // iTunes Search does not publish artist stream/play totals, so we use US search rank
-  // as the safest public signal. Deezer exposes a track rank, which we gate directly.
+  // Public APIs do not expose true cross-platform total plays.
+  // Deezer rank is the strongest public signal we get, so require 100k+.
+  // iTunes uses US search ranking only, so keep a tighter top-window gate.
   if (source === "deezer") {
     const rank = Number(item.rank ?? item?.artist?.rank ?? 0);
-    return !Number.isFinite(rank) || rank === 0 ? index < 28 : rank >= MIN_PUBLIC_ARTIST_SIGNAL;
+    return !Number.isFinite(rank) || rank === 0 ? index < 18 : rank >= MIN_PUBLIC_ARTIST_SIGNAL;
   }
   return index < ITUNES_MAINSTREAM_WINDOW;
+}
+
+function providerGenreMatchesSearch(item = {}, searchGenreKey = null, source = "itunes") {
+  if (!searchGenreKey) return true;
+  const text = source === "itunes"
+    ? [item.primaryGenreName, item.trackName, item.collectionName, item.artistName].filter(Boolean).join(" ")
+    : [item.title, item.album?.title, item.artist?.name].filter(Boolean).join(" ");
+  const detected = genreKeysFromText(text);
+  if (!detected.length) return true;
+  return detected.includes(searchGenreKey);
 }
 
 const US_MAINSTREAM_FILTER = {
@@ -928,6 +940,7 @@ async function fetchItunesDiscovery(auraKey, excludedKeys = new Set(), genreSett
         .filter((item) => item.previewUrl && item.trackName && item.artistName)
         .filter((item) => !looksLikeLowQualityMusicResult(item.trackName, item.artistName, item.collectionName))
         .filter((item) => hasMainstreamProviderSignal(item, "itunes", item.__rankIndex))
+        .filter((item) => providerGenreMatchesSearch(item, searchGenreKey, "itunes"))
         .filter((item) => !isExcludedTrack(item.trackName, item.artistName, excludedKeys))
         .filter((item) => isTrackAllowedByGenre(item.trackName, item.artistName, {
           primaryGenreName: item.primaryGenreName,
@@ -979,6 +992,7 @@ async function fetchDeezerDiscovery(auraKey, excludedKeys = new Set(), genreSett
           .filter((item) => item.preview && item.title && item.artist?.name)
           .filter((item) => !looksLikeLowQualityMusicResult(item.title, item.artist?.name, item.album?.title))
           .filter((item) => hasMainstreamProviderSignal(item, "deezer", item.__rankIndex))
+          .filter((item) => providerGenreMatchesSearch(item, searchGenreKey, "deezer"))
           .filter((item) => !isExcludedTrack(item.title, item.artist?.name, excludedKeys))
           .filter((item) => genreAllowedForSettings([searchGenreKey].filter(Boolean), genreSettings, false));
 
@@ -1200,6 +1214,7 @@ async function buildFreshAuraResult(auraKey, colors = ["6d5dfc", "19d8ff", "ff3d
     auraKey,
     songIndex: Date.now(),
     colors: safeColors,
+    uploadedImage: imageBrain?.uploadedImage || "",
     aura: auraName,
     mood: profile.mood,
     song: liveTrack.song,
@@ -2475,17 +2490,25 @@ const entry = {
 
   function handleFile(file) {
     if (!file) return;
-    const imageUrl = URL.createObjectURL(file);
-    setImage(imageUrl);
-    setFileName(file.name || "Aura image");
-    setResult(null);
-    setUnlockResult(null);
-    setPlaying(false);
-    setPreviewError("");
+    const reader = new FileReader();
+    reader.onload = () => {
+      const imageDataUrl = String(reader.result || "");
+      if (!imageDataUrl) return;
+      setImage(imageDataUrl);
+      setFileName(file.name || "Aura image");
+      setResult(null);
+      setUnlockResult(null);
+      setPlaying(false);
+      setPreviewError("");
 
-    extractImageMood(imageUrl).then(({ colors }) => {
-      setImageColors(colors);
-    });
+      extractImageMood(imageDataUrl).then(({ colors }) => {
+        setImageColors(colors);
+      });
+    };
+    reader.onerror = () => {
+      setPreviewError("Aura could not load that image. Try a different photo.");
+    };
+    reader.readAsDataURL(file);
   }
 
   async function analyzeAura() {
@@ -2511,7 +2534,7 @@ const entry = {
       const mood = await extractImageMood(image);
       setImageColors(mood.colors);
 
-      const built = await buildFreshAuraResult(mood.auraKey, mood.colors, genreSettings, mood.visualBrain);
+      const built = await buildFreshAuraResult(mood.auraKey, mood.colors, genreSettings, { ...mood.visualBrain, uploadedImage: image });
 
       revealTimerRef.current = window.setTimeout(() => {
         setLoading(false);
@@ -2541,7 +2564,7 @@ const entry = {
     setPlaying(false);
     setPreviewError("");
     fadeOutAndPause();
-    const next = await buildFreshAuraResult(result.auraKey, result.colors, genreSettings, result.visualBrain);
+    const next = await buildFreshAuraResult(result.auraKey, result.colors, genreSettings, { ...result.visualBrain, uploadedImage: result.uploadedImage || image });
     setResult(next);
     setUnlocking(true);
     window.setTimeout(() => setUnlocking(false), 1250);
@@ -2606,7 +2629,7 @@ const entry = {
       setImageColors(mood.colors);
       closeLiveCameraMode();
 
-      const built = await buildFreshAuraResult(mood.auraKey, mood.colors, genreSettings, mood.visualBrain);
+      const built = await buildFreshAuraResult(mood.auraKey, mood.colors, genreSettings, { ...mood.visualBrain, uploadedImage: image });
 
       revealTimerRef.current = window.setTimeout(() => {
         setLoading(false);
@@ -3383,8 +3406,11 @@ const entry = {
                 <div className="aura-result-hero ios-glass mb-5 overflow-hidden rounded-[2.3rem] p-2 shadow-2xl shadow-black/40">
                   <div className="relative">
                     <div className="aura-color-bloom pointer-events-none absolute inset-[-22%] opacity-70" />
-                    <div className="flex min-h-[360px] w-full items-center justify-center rounded-[1.8rem] bg-black/55 p-2 sm:min-h-[420px]">
-                      <img src={image} alt="Aura result" className="max-h-[70vh] w-full rounded-[1.45rem] object-contain shadow-2xl shadow-black/45" />
+                    {(result.uploadedImage || image) && (
+                      <img src={result.uploadedImage || image} alt="" aria-hidden="true" className="pointer-events-none absolute inset-0 h-full w-full rounded-[1.8rem] object-cover opacity-22 blur-2xl scale-105" />
+                    )}
+                    <div className="flex min-h-[360px] w-full items-center justify-center rounded-[1.8rem] bg-black/55 p-1 sm:min-h-[420px]">
+                      <img src={result.uploadedImage || image} alt="Aura result" onError={(event) => { event.currentTarget.style.display = "none"; }} className="h-full max-h-[72vh] w-full rounded-[1.45rem] object-contain shadow-2xl shadow-black/45" />
                     </div>
                     <div className="absolute inset-0 rounded-[1.8rem] bg-[radial-gradient(circle_at_24%_18%,rgba(255,255,255,.16),transparent_25%),linear-gradient(to_top,#050607,rgba(0,0,0,.16),transparent)]" />
                     <button onClick={() => setImmersiveMode(true)} className="group absolute bottom-4 left-4 transition duration-300 active:scale-95" aria-label="Open immersive playback mode">

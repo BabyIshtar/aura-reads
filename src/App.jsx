@@ -492,6 +492,33 @@ function generateAuraName(auraKey = "grungeNoir", imageBrain = null) {
 }
 
 
+
+// Public providers do not expose exact total cross-platform play counts.
+// This gate keeps Aura away from obvious low-signal/cover/karaoke results and
+// only accepts tracks with a strong mainstream signal from the provider result.
+const MIN_PUBLIC_ARTIST_SIGNAL = 50000;
+const ITUNES_MAINSTREAM_WINDOW = 24;
+
+function looksLikeLowQualityMusicResult(song = "", artist = "", collection = "") {
+  const text = compactGenreText(`${song} ${artist} ${collection}`);
+  const blocked = [
+    "karaoke", "tribute", "cover band", "covers", "instrumental version",
+    "slowed", "reverb", "sped up", "nightcore", "remix tribute",
+    "sound alike", "made famous by", "originally performed"
+  ];
+  return blocked.some((term) => text.includes(term));
+}
+
+function hasMainstreamProviderSignal(item = {}, source = "itunes", index = 0) {
+  // iTunes Search does not publish artist stream/play totals, so we use US search rank
+  // as the safest public signal. Deezer exposes a track rank, which we gate directly.
+  if (source === "deezer") {
+    const rank = Number(item.rank ?? item?.artist?.rank ?? 0);
+    return !Number.isFinite(rank) || rank === 0 ? index < 28 : rank >= MIN_PUBLIC_ARTIST_SIGNAL;
+  }
+  return index < ITUNES_MAINSTREAM_WINDOW;
+}
+
 const US_MAINSTREAM_FILTER = {
   market: "US",
   // Spotify does not expose total lifetime plays through the public Web API.
@@ -897,7 +924,10 @@ async function fetchItunesDiscovery(auraKey, excludedKeys = new Set(), genreSett
       const url = `https://itunes.apple.com/search?term=${query}&media=music&entity=song&country=US&limit=75&_=${Date.now()}`;
       const data = await fetchJson(url);
       const results = (Array.isArray(data?.results) ? data.results : [])
+        .map((item, index) => ({ ...item, __rankIndex: index }))
         .filter((item) => item.previewUrl && item.trackName && item.artistName)
+        .filter((item) => !looksLikeLowQualityMusicResult(item.trackName, item.artistName, item.collectionName))
+        .filter((item) => hasMainstreamProviderSignal(item, "itunes", item.__rankIndex))
         .filter((item) => !isExcludedTrack(item.trackName, item.artistName, excludedKeys))
         .filter((item) => isTrackAllowedByGenre(item.trackName, item.artistName, {
           primaryGenreName: item.primaryGenreName,
@@ -907,7 +937,7 @@ async function fetchItunesDiscovery(auraKey, excludedKeys = new Set(), genreSett
 
       if (!results.length) continue;
 
-      const topWindow = results.slice(0, Math.min(results.length, 55));
+      const topWindow = results.slice(0, Math.min(results.length, ITUNES_MAINSTREAM_WINDOW));
       const picked = randomItem(topWindow);
       const previewUrl = picked.previewUrl?.replace("http://", "https://") || "";
 
@@ -945,13 +975,16 @@ async function fetchDeezerDiscovery(auraKey, excludedKeys = new Set(), genreSett
       try {
         const data = await fetchJson(url);
         const results = (Array.isArray(data?.data) ? data.data : [])
+          .map((item, index) => ({ ...item, __rankIndex: index }))
           .filter((item) => item.preview && item.title && item.artist?.name)
+          .filter((item) => !looksLikeLowQualityMusicResult(item.title, item.artist?.name, item.album?.title))
+          .filter((item) => hasMainstreamProviderSignal(item, "deezer", item.__rankIndex))
           .filter((item) => !isExcludedTrack(item.title, item.artist?.name, excludedKeys))
           .filter((item) => genreAllowedForSettings([searchGenreKey].filter(Boolean), genreSettings, false));
 
         if (!results.length) continue;
 
-        const topWindow = results.slice(0, Math.min(results.length, 55));
+        const topWindow = results.slice(0, Math.min(results.length, 28));
         const picked = randomItem(topWindow);
         const previewUrl = picked.preview?.replace("http://", "https://") || "";
 
@@ -3350,7 +3383,9 @@ const entry = {
                 <div className="aura-result-hero ios-glass mb-5 overflow-hidden rounded-[2.3rem] p-2 shadow-2xl shadow-black/40">
                   <div className="relative">
                     <div className="aura-color-bloom pointer-events-none absolute inset-[-22%] opacity-70" />
-                    <img src={image} alt="Aura result" className="h-[380px] w-full rounded-[1.8rem] object-cover" />
+                    <div className="flex min-h-[360px] w-full items-center justify-center rounded-[1.8rem] bg-black/55 p-2 sm:min-h-[420px]">
+                      <img src={image} alt="Aura result" className="max-h-[70vh] w-full rounded-[1.45rem] object-contain shadow-2xl shadow-black/45" />
+                    </div>
                     <div className="absolute inset-0 rounded-[1.8rem] bg-[radial-gradient(circle_at_24%_18%,rgba(255,255,255,.16),transparent_25%),linear-gradient(to_top,#050607,rgba(0,0,0,.16),transparent)]" />
                     <button onClick={() => setImmersiveMode(true)} className="group absolute bottom-4 left-4 transition duration-300 active:scale-95" aria-label="Open immersive playback mode">
                       <img src={result.albumArt} onError={(event) => { event.currentTarget.src = generatedAlbumArt(result.song, result.artist, result.colors || colors); }} alt={`${result.song} album art`} layoutId="shared-album-art" className="h-28 w-28 rounded-[1.4rem] border border-white/25 object-cover shadow-[0_0_44px_var(--aura-b),0_20px_50px_rgba(0,0,0,.62)]" />

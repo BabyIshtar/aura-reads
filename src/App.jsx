@@ -205,7 +205,7 @@ function generatedAlbumArt(song, artist, colors) {
 
 async function fetchJson(url, options = {}) {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 5200);
+  const timeout = window.setTimeout(() => controller.abort(), 14000);
 
   try {
     const res = await fetch(url, {
@@ -1221,6 +1221,35 @@ async function fetchSpotifyAuraTrack(auraKey, excludedKeys = new Set(), genreSet
   });
 }
 
+
+function buildLocalFallbackTrack(auraKey, excludedKeys = new Set(), genreSettings = DEFAULT_GENRE_SETTINGS) {
+  const profile = AURA_PROFILES[auraKey] || AURA_PROFILES.grungeNoir;
+  const songs = Array.isArray(profile.songs) ? profile.songs : [];
+  const enabled = new Set(enabledGenreKeys(genreSettings));
+
+  const allowedSongs = songs.filter(([song, artist]) => {
+    const key = normalizeTrackKey(song, artist);
+    const genreKeys = trackGenreKeys(song, artist, {});
+    const genreAllowed = !genreKeys.length || genreKeys.some((genreKey) => enabled.has(genreKey));
+    return genreAllowed && !excludedKeys.has(key);
+  });
+
+  const backupSongs = songs.filter(([song, artist]) => !excludedKeys.has(normalizeTrackKey(song, artist)));
+  const source = allowedSongs.length ? allowedSongs : (backupSongs.length ? backupSongs : songs);
+  const picked = randomItem(source) || songs[0] || ["After Dark", "Mr.Kitty", "Aura found a dark cinematic backup match."];
+
+  return normalizeDiscoveryTrack({
+    song: picked[0],
+    artist: picked[1],
+    reason: picked[2] || "Aura found a reliable backup match for this image.",
+    albumArt: "",
+    previewUrl: "",
+    genreKey: trackGenreKeys(picked[0], picked[1], {})[0] || "",
+    searchGenreKey: trackGenreKeys(picked[0], picked[1], {})[0] || "",
+    genres: trackGenreKeys(picked[0], picked[1], {})
+  });
+}
+
 async function buildFreshAuraResult(auraKey, colors = ["6d5dfc", "19d8ff", "ff3df2"], genreSettings = DEFAULT_GENRE_SETTINGS, imageBrain = null) {
   const profile = AURA_PROFILES[auraKey] || AURA_PROFILES.grungeNoir;
   const readableTextClass = useReadableAuraText(colors);
@@ -1246,12 +1275,20 @@ async function buildFreshAuraResult(auraKey, colors = ["6d5dfc", "19d8ff", "ff3d
   }
 
   if (!liveTrack?.song || !liveTrack?.artist) {
-    throw new Error("Aura could not find a live music match right now. Try another photo or turn more genres on.");
+    // Mobile Safari can be stricter/slower with network calls after large image uploads.
+    // Never leave the user stuck on loading — use the curated aura pool as a guaranteed match.
+    liveTrack = buildLocalFallbackTrack(auraKey, excludedKeys, genreSettings);
   }
 
-  const media = liveTrack.previewUrl && liveTrack.albumArt
-    ? liveTrack
-    : { ...liveTrack, ...(await fetchSongMedia(liveTrack.song, liveTrack.artist)) };
+  let media = liveTrack;
+  if (!liveTrack.previewUrl || !liveTrack.albumArt) {
+    try {
+      media = { ...liveTrack, ...(await fetchSongMedia(liveTrack.song, liveTrack.artist)) };
+    } catch (error) {
+      console.warn("Aura media lookup failed; using generated fallback art", error);
+      media = liveTrack;
+    }
+  }
 
   const previewUrl = media.previewUrl || "";
   const albumArt = media.albumArt || generatedAlbumArt(liveTrack.song, liveTrack.artist, safeColors);
@@ -2282,6 +2319,48 @@ function safeLocalStorageSet(key, value) {
 
 const SILENT_AUDIO_SRC = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=";
 
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Could not read image file"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function prepareMobileSafeImage(file, maxSide = 1600) {
+  const originalDataUrl = await readFileAsDataUrl(file);
+
+  return await new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const width = img.naturalWidth || img.width || maxSide;
+        const height = img.naturalHeight || img.height || maxSide;
+        const scale = Math.min(1, maxSide / Math.max(width, height));
+
+        if (scale >= 1) {
+          resolve(originalDataUrl);
+          return;
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(width * scale));
+        canvas.height = Math.max(1, Math.round(height * scale));
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", 0.88));
+      } catch (error) {
+        console.warn("Aura image resize fallback used", error);
+        resolve(originalDataUrl);
+      }
+    };
+    img.onerror = () => resolve(originalDataUrl);
+    img.src = originalDataUrl;
+  });
+}
+
 export default function App() {
   const fileInputRef = useRef(null);
   const cameraInputRef = useRef(null);
@@ -2556,12 +2635,14 @@ const entry = {
     finalRevealTimerRef.current = null;
   }
 
-  function handleFile(file) {
+  async function handleFile(file) {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const imageDataUrl = String(reader.result || "");
-      if (!imageDataUrl) return;
+    setPreviewError("");
+
+    try {
+      const imageDataUrl = await prepareMobileSafeImage(file);
+      if (!imageDataUrl) throw new Error("Image was empty");
+
       setImage(imageDataUrl);
       setFileName(file.name || "Aura image");
       setResult(null);
@@ -2572,11 +2653,10 @@ const entry = {
       extractImageMood(imageDataUrl).then(({ colors }) => {
         setImageColors(colors);
       });
-    };
-    reader.onerror = () => {
+    } catch (error) {
+      console.warn("Aura could not load uploaded image", error);
       setPreviewError("Aura could not load that image. Try a different photo.");
-    };
-    reader.readAsDataURL(file);
+    }
   }
 
   async function analyzeAura() {
@@ -2619,9 +2699,24 @@ const entry = {
       }, 900);
     } catch (error) {
       console.warn("Aura analysis failed", error);
-      setLoading(false);
-      setUnlocking(false);
-      setPreviewError(error?.message || "Aura had trouble reading this image. Try another photo.");
+      try {
+        const fallbackMood = {
+          auraKey: "grungeNoir",
+          colors: ["6d5dfc", "19d8ff", "ff3df2"],
+          visualBrain: describeVisualBrain({})
+        };
+        const built = await buildFreshAuraResult(fallbackMood.auraKey, fallbackMood.colors, genreSettings, { ...fallbackMood.visualBrain, uploadedImage: image });
+        setLoading(false);
+        setUnlocking(false);
+        setResult(built);
+        setUnlockResult(null);
+        setPreviewError("");
+      } catch (fallbackError) {
+        console.warn("Aura fallback failed", fallbackError);
+        setLoading(false);
+        setUnlocking(false);
+        setPreviewError("Aura had trouble reading this image. Please try another photo.");
+      }
       autoPlayAfterMatchRef.current = false;
     }
   }

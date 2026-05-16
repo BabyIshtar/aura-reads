@@ -115,27 +115,27 @@ function auraTypographyClass(auraKey = "") {
 const AURA_ENVIRONMENTS = {
   grungeNoir: {
     overlay: "rgba(4,4,6,.22)",
-    blur: "120px",
+    blur: REDUCED_MOTION_MOBILE ? "38px" : "120px",
     opacity: 0.22
   },
   neonNightlife: {
     overlay: "rgba(0,16,38,.16)",
-    blur: "140px",
+    blur: REDUCED_MOTION_MOBILE ? "42px" : "140px",
     opacity: 0.36
   },
   warmDreamscape: {
     overlay: "rgba(40,14,8,.12)",
-    blur: "130px",
+    blur: REDUCED_MOTION_MOBILE ? "40px" : "130px",
     opacity: 0.26
   },
   editorialLuxury: {
     overlay: "rgba(255,255,255,.04)",
-    blur: "160px",
+    blur: REDUCED_MOTION_MOBILE ? "44px" : "160px",
     opacity: 0.14
   },
   stormPressure: {
     overlay: "rgba(12,20,42,.16)",
-    blur: "145px",
+    blur: REDUCED_MOTION_MOBILE ? "42px" : "145px",
     opacity: 0.24
   }
 };
@@ -143,8 +143,14 @@ const AURA_ENVIRONMENTS = {
 
 
 const IOS_EASE = [0.22, 1, 0.36, 1];
-const SOFT_SPRING = { type: "spring", stiffness: 72, damping: 20, mass: 1.05 };
+const SOFT_SPRING = REDUCED_MOTION_MOBILE ? { type: "tween", duration: 0.28 } : { type: "spring", stiffness: 72, damping: 20, mass: 1.05 };
 const CASCADE_EASE = [0.16, 1, 0.3, 1];
+
+const REDUCED_MOTION_MOBILE =
+  typeof window !== "undefined" &&
+  (window.innerWidth < 768 ||
+    /Android|iPhone|iPad|iPod/i.test(navigator.userAgent));
+
 
 function clamp(value, min = 0, max = 255) {
   return Math.max(min, Math.min(max, value));
@@ -2966,7 +2972,7 @@ const entry = {
             <motion.div
               initial={{ scale: 0.2, opacity: 0.85 }}
               animate={{ scale: 5.2, opacity: 0 }}
-              transition={{ duration: 1.25, ease: CASCADE_EASE }}
+              transition={{ duration: REDUCED_MOTION_MOBILE ? 0.45 : 1.25, ease: CASCADE_EASE }}
               className="h-40 w-40 rounded-full bg-[radial-gradient(circle,var(--aura-a),transparent_68%)] blur-[28px]"
             />
           </motion.div>
@@ -3135,7 +3141,7 @@ const entry = {
               className="aura-unlock-wash"
               initial={{ opacity: 0, scale: 0.96 }}
               animate={{ opacity: [0, 0.46, 0], scale: [0.96, 1.035, 1.08] }}
-              transition={{ duration: 1.2, ease: IOS_EASE }}
+              transition={{ duration: REDUCED_MOTION_MOBILE ? 0.45 : 1.2, ease: IOS_EASE }}
             />
             <motion.div
               className="aura-unlock-sweep"

@@ -205,7 +205,7 @@ function generatedAlbumArt(song, artist, colors) {
 
 async function fetchJson(url, options = {}) {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 14000);
+  const timeout = window.setTimeout(() => controller.abort(), 8000);
 
   try {
     const res = await fetch(url, {
@@ -1248,6 +1248,54 @@ function buildLocalFallbackTrack(auraKey, excludedKeys = new Set(), genreSetting
     searchGenreKey: trackGenreKeys(picked[0], picked[1], {})[0] || "",
     genres: trackGenreKeys(picked[0], picked[1], {})
   });
+}
+
+
+function withAuraTimeout(promise, ms = 12000, label = "Aura request") {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = window.setTimeout(() => {
+      const error = new Error(`${label} timed out`);
+      error.code = "AURA_TIMEOUT";
+      reject(error);
+    }, ms);
+  });
+
+  return Promise.race([promise, timeout]).finally(() => window.clearTimeout(timer));
+}
+
+function buildInstantAuraResult(auraKey = "grungeNoir", colors = ["6d5dfc", "19d8ff", "ff3df2"], genreSettings = DEFAULT_GENRE_SETTINGS, imageBrain = null) {
+  const profile = AURA_PROFILES[auraKey] || AURA_PROFILES.grungeNoir;
+  const safeColors = colors?.length >= 3 ? colors : profile.colorFallback;
+  const track = buildLocalFallbackTrack(auraKey, getRecentSongKeys(18), genreSettings);
+  const auraName = generateAuraName(auraKey, imageBrain);
+
+  return {
+    auraKey,
+    songIndex: Date.now(),
+    colors: safeColors,
+    uploadedImage: imageBrain?.uploadedImage || "",
+    aura: auraName,
+    mood: profile.mood,
+    song: track.song,
+    artist: track.artist,
+    reason: track.reason || "Aura used a reliable instant match so mobile never gets stuck.",
+    aiInsight: buildAuraInsight({ ...imageBrain, auraKey }, track.song),
+    visualBrain: { ...imageBrain, auraKey },
+    albumArt: generatedAlbumArt(track.song, track.artist, safeColors),
+    previewUrl: "",
+    appleMusicUrl: appleMusicSearchUrl(track.song, track.artist),
+    collectionName: "",
+    spotifyUrl: `https://open.spotify.com/search/${encodeURIComponent(`${track.song} ${track.artist}`)}`,
+    spotifyTrackId: "",
+    popularity: null,
+    releaseYear: "",
+    genres: track.genres || [],
+    artistImage: "",
+    artistFollowers: 0,
+    usMainstreamVerified: true,
+    spotifyVerified: false
+  };
 }
 
 async function buildFreshAuraResult(auraKey, colors = ["6d5dfc", "19d8ff", "ff3df2"], genreSettings = DEFAULT_GENRE_SETTINGS, imageBrain = null) {
@@ -2678,11 +2726,37 @@ const entry = {
     setAudioReactive(false);
     setUnlocking(true);
 
+    const hardStopTimer = window.setTimeout(async () => {
+      try {
+        const mood = await extractImageMood(image);
+        const safeBrain = { ...mood.visualBrain, uploadedImage: image };
+        const safeResult = buildInstantAuraResult(mood.auraKey, mood.colors, genreSettings, safeBrain);
+        setImageColors(mood.colors);
+        setLoading(false);
+        setUnlocking(false);
+        setUnlockResult(null);
+        setResult(safeResult);
+      } catch {
+        setLoading(false);
+        setUnlocking(false);
+      }
+    }, 15000);
+
     try {
       const mood = await extractImageMood(image);
       setImageColors(mood.colors);
 
-      const built = await buildFreshAuraResult(mood.auraKey, mood.colors, genreSettings, { ...mood.visualBrain, uploadedImage: image });
+      const imageBrain = { ...mood.visualBrain, uploadedImage: image };
+      const built = await withAuraTimeout(
+        buildFreshAuraResult(mood.auraKey, mood.colors, genreSettings, imageBrain),
+        12000,
+        "Aura mobile match"
+      ).catch((error) => {
+        console.warn("Aura live match timed out; using instant mobile-safe match", error);
+        return buildInstantAuraResult(mood.auraKey, mood.colors, genreSettings, imageBrain);
+      });
+
+      window.clearTimeout(hardStopTimer);
 
       revealTimerRef.current = window.setTimeout(() => {
         setLoading(false);
@@ -2698,6 +2772,7 @@ const entry = {
         // preview is manual to avoid mobile double-tap/autoplay issues
       }, 900);
     } catch (error) {
+      window.clearTimeout(hardStopTimer);
       console.warn("Aura analysis failed", error);
       try {
         const fallbackMood = {
@@ -2705,7 +2780,7 @@ const entry = {
           colors: ["6d5dfc", "19d8ff", "ff3df2"],
           visualBrain: describeVisualBrain({})
         };
-        const built = await buildFreshAuraResult(fallbackMood.auraKey, fallbackMood.colors, genreSettings, { ...fallbackMood.visualBrain, uploadedImage: image });
+        const built = buildInstantAuraResult(fallbackMood.auraKey, fallbackMood.colors, genreSettings, { ...fallbackMood.visualBrain, uploadedImage: image });
         setLoading(false);
         setUnlocking(false);
         setResult(built);
@@ -2727,7 +2802,12 @@ const entry = {
     setPlaying(false);
     setPreviewError("");
     fadeOutAndPause();
-    const next = await buildFreshAuraResult(result.auraKey, result.colors, genreSettings, { ...result.visualBrain, uploadedImage: result.uploadedImage || image });
+    const nextBrain = { ...result.visualBrain, uploadedImage: result.uploadedImage || image };
+    const next = await withAuraTimeout(
+      buildFreshAuraResult(result.auraKey, result.colors, genreSettings, nextBrain),
+      12000,
+      "Similar track"
+    ).catch(() => buildInstantAuraResult(result.auraKey, result.colors, genreSettings, nextBrain));
     setResult({ ...next, aura: result.aura, visualBrain: result.visualBrain, uploadedImage: result.uploadedImage || image });
     setUnlocking(true);
     window.setTimeout(() => setUnlocking(false), 1250);
@@ -2792,7 +2872,15 @@ const entry = {
       setImageColors(mood.colors);
       closeLiveCameraMode();
 
-      const built = await buildFreshAuraResult(mood.auraKey, mood.colors, genreSettings, { ...mood.visualBrain, uploadedImage: image });
+      const liveBrain = { ...mood.visualBrain, uploadedImage: frame };
+      const built = await withAuraTimeout(
+        buildFreshAuraResult(mood.auraKey, mood.colors, genreSettings, liveBrain),
+        12000,
+        "Live aura match"
+      ).catch((error) => {
+        console.warn("Live aura match timed out; using instant fallback", error);
+        return buildInstantAuraResult(mood.auraKey, mood.colors, genreSettings, liveBrain);
+      });
 
       revealTimerRef.current = window.setTimeout(() => {
         setLoading(false);

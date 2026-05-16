@@ -384,6 +384,10 @@ async function fetchSongMedia(song, artist) {
 }
 
 
+function appleMusicSearchUrl(song = "", artist = "") {
+  return `https://music.apple.com/us/search?term=${encodeURIComponent(`${song} ${artist}`)}`;
+}
+
 const DEFAULT_GENRE_SETTINGS = {
   rbSoul: true,
   rapHipHop: true,
@@ -556,11 +560,9 @@ function providerGenreMatchesSearch(item = {}, searchGenreKey = null, source = "
   const detected = genreKeysFromText(text);
   if (detected.length) return detected.includes(searchGenreKey);
 
-  // If the provider gives vague genre metadata, only allow the track when the
-  // actual search bucket is explicit enough to trust. This keeps toggles strict.
-  const trustedSearchTerms = STRICT_GENRE_QUERY_POOLS[searchGenreKey] || [];
-  const compactText = compactGenreText(text);
-  return trustedSearchTerms.some((term) => compactText.includes(compactGenreText(term).split(" ")[0]));
+  // If provider metadata is vague, trust only the explicit query bucket.
+  // This keeps toggles strict without blocking Apple/iTunes results that omit genre labels.
+  return Boolean(searchGenreKey);
 }
 
 const US_MAINSTREAM_FILTER = {
@@ -851,6 +853,7 @@ function discoveryQueriesForAura(auraKey, genreSettings = DEFAULT_GENRE_SETTINGS
   const pool = AURA_DISCOVERY[auraKey] || AURA_DISCOVERY.grungeNoir;
   const enabledKeys = enabledGenreKeys(genreSettings);
   const intelligenceTerms = [
+    imageBrain?.toneSignature,
     imageBrain?.energyLabel,
     imageBrain?.lightLabel,
     imageBrain?.textureLabel,
@@ -858,6 +861,7 @@ function discoveryQueriesForAura(auraKey, genreSettings = DEFAULT_GENRE_SETTINGS
     imageBrain?.compositionLabel,
     imageBrain?.paceLabel,
     ...(Array.isArray(imageBrain?.searchTerms) ? imageBrain.searchTerms : []),
+    "US popular",
     "moody",
     "night drive",
     "atmospheric"
@@ -869,10 +873,10 @@ function discoveryQueriesForAura(auraKey, genreSettings = DEFAULT_GENRE_SETTINGS
       const auraTerm = randomItem(pool.queries) || "atmospheric music";
       const smartTerm = randomItem(intelligenceTerms) || "moody";
       return [
-        { text: `${term} ${smartTerm}`, genreKey },
-        { text: `${term} ${auraTerm}`, genreKey },
-        { text: `${term} US popular`, genreKey },
-        { text: `${term} playlist`, genreKey }
+        { text: `${term} ${smartTerm} US`, genreKey },
+        { text: `${term} ${auraTerm} US`, genreKey },
+        { text: `${term} ${imageBrain?.toneSignature || "aesthetic"}`, genreKey },
+        { text: `${term} US popular`, genreKey }
       ];
     });
   });
@@ -883,7 +887,7 @@ function discoveryQueriesForAura(auraKey, genreSettings = DEFAULT_GENRE_SETTINGS
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
-  }));
+  })).slice(0, 18);
 }
 
 async function fetchSpotifyDiscovery(auraKey, excludedKeys = new Set(), genreSettings = DEFAULT_GENRE_SETTINGS, imageBrain = null) {
@@ -1258,7 +1262,7 @@ async function buildFreshAuraResult(auraKey, colors = ["6d5dfc", "19d8ff", "ff3d
     visualBrain: { ...imageBrain, auraKey },
     albumArt,
     previewUrl,
-    appleMusicUrl: media.appleMusicUrl || "",
+    appleMusicUrl: media.appleMusicUrl || appleMusicSearchUrl(liveTrack.song, liveTrack.artist),
     collectionName: media.collectionName || "",
     spotifyUrl: spotifySearchUrl,
     spotifyTrackId: "",
@@ -1327,9 +1331,18 @@ function describeVisualBrain(stats = {}) {
   const compositionLabel = contrast > 62 && brightness < 110 ? "dramatic composition" : saturation > 64 ? "color-forward composition" : brightness > 145 ? "airy composition" : "cinematic composition";
   const paceLabel = energyLabel === "high energy" ? "fast pulse" : energyLabel === "intense" ? "heavy pulse" : brightness > 132 ? "floating pulse" : "slow pulse";
   const toneSignature = `${temperatureLabel} ${textureLabel} ${paceLabel}`;
-  const searchTerms = [energyLabel, lightLabel, textureLabel, temperatureLabel, compositionLabel, paceLabel]
+  const smarterMoodTerms = [];
+  if (brightness < 82) smarterMoodTerms.push("dark", "late night", "shadowy");
+  if (brightness > 145) smarterMoodTerms.push("bright", "open", "sunlit");
+  if (warmth > 30) smarterMoodTerms.push("warm", "golden", "nostalgic");
+  if (warmth < -12) smarterMoodTerms.push("cool", "blue", "reflective");
+  if (saturation > 68) smarterMoodTerms.push("vivid", "colorful", "high energy");
+  if (saturation < 32) smarterMoodTerms.push("minimal", "muted", "clean");
+  if (contrast > 58) smarterMoodTerms.push("dramatic", "heavy", "cinematic");
+  if (edgeIntensity > 48) smarterMoodTerms.push("textured", "gritty", "raw");
+  const searchTerms = [...new Set([energyLabel, lightLabel, textureLabel, temperatureLabel, compositionLabel, paceLabel, ...smarterMoodTerms]
     .filter(Boolean)
-    .map((value) => String(value).replace(/\s+/g, " ").trim());
+    .map((value) => String(value).replace(/\s+/g, " ").trim()))];
   const confidence = Math.min(99, Math.max(66, Math.round(59 + Math.abs(warmth) * 0.2 + saturation * 0.22 + contrast * 0.18 + colorSpread * 0.08 + edgeIntensity * 0.12)));
 
   return { energyLabel, lightLabel, textureLabel, temperatureLabel, compositionLabel, paceLabel, toneSignature, searchTerms, edgeIntensity, confidence };
@@ -1522,7 +1535,7 @@ async function buildResult(auraKey, songIndex = 0, colors = ["6d5dfc", "19d8ff",
     aiInsight: buildAuraInsight({ ...imageBrain, auraKey }, song),
     albumArt,
     previewUrl: media.previewUrl || "",
-    appleMusicUrl: media.appleMusicUrl || "",
+    appleMusicUrl: media.appleMusicUrl || appleMusicSearchUrl(song, artist),
     collectionName: media.collectionName || "",
     spotifyUrl: media.spotifyUrl || `https://open.spotify.com/search/${encodeURIComponent(`${song} ${artist}`)}`,
     spotifyTrackId: media.spotifyTrackId || "",
@@ -2223,6 +2236,14 @@ const auraRuntimeCss = `
         inset 0 -40px 76px rgba(0,0,0,.55);
     }
   }
+
+
+  @media (max-width: 760px) {
+    .aura-result-hero, .aura-result-card, .ios-glass { backdrop-filter: blur(18px) saturate(1.12); }
+    .aura-color-bloom { opacity: .42 !important; filter: blur(34px) saturate(1.15) !important; }
+    .aura-gradient-mesh { opacity: .34; }
+    .aura-result-title { line-height: .94; }
+  }
 `;
 
 
@@ -2602,7 +2623,7 @@ const entry = {
     setPreviewError("");
     fadeOutAndPause();
     const next = await buildFreshAuraResult(result.auraKey, result.colors, genreSettings, { ...result.visualBrain, uploadedImage: result.uploadedImage || image });
-    setResult(next);
+    setResult({ ...next, aura: result.aura, visualBrain: result.visualBrain, uploadedImage: result.uploadedImage || image });
     setUnlocking(true);
     window.setTimeout(() => setUnlocking(false), 1250);
   }
@@ -3446,8 +3467,8 @@ const entry = {
                     {(result.uploadedImage || image) && (
                       <img src={result.uploadedImage || image} alt="" aria-hidden="true" className="pointer-events-none absolute inset-0 h-full w-full rounded-[1.8rem] object-cover opacity-22 blur-2xl scale-105" />
                     )}
-                    <div className="flex min-h-[360px] w-full items-center justify-center rounded-[1.8rem] bg-black/55 p-1 sm:min-h-[420px]">
-                      <img src={result.uploadedImage || image} alt="Aura result" onError={(event) => { event.currentTarget.style.display = "none"; }} className="h-full max-h-[72vh] w-full rounded-[1.45rem] object-contain shadow-2xl shadow-black/45" />
+                    <div className="flex min-h-[420px] w-full items-center justify-center rounded-[1.8rem] bg-black/55 p-1 sm:min-h-[520px]">
+                      <img src={result.uploadedImage || image} alt="Aura result" onError={(event) => { event.currentTarget.style.display = "none"; }} className="max-h-[78vh] min-h-[400px] w-full rounded-[1.45rem] object-contain shadow-2xl shadow-black/45 sm:min-h-[500px]" loading="eager" />
                     </div>
                     <div className="absolute inset-0 rounded-[1.8rem] bg-[radial-gradient(circle_at_24%_18%,rgba(255,255,255,.16),transparent_25%),linear-gradient(to_top,#050607,rgba(0,0,0,.16),transparent)]" />
                     <button onClick={() => setImmersiveMode(true)} className="group absolute bottom-4 left-4 transition duration-300 active:scale-95" aria-label="Open immersive playback mode">
@@ -3520,9 +3541,14 @@ const entry = {
 
                   
 
-                  <a href={result.spotifyUrl} target="_blank" rel="noreferrer" className="ios-glass mt-3 flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-white/78 transition duration-500 ease-out hover:scale-[1.015] active:scale-[0.985]">
-                    Search on Spotify <ExternalLink size={15} />
-                  </a>
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <a href={result.spotifyUrl} target="_blank" rel="noreferrer" className="ios-glass flex items-center justify-center gap-2 rounded-2xl px-3 py-3 text-xs font-semibold text-white/78 transition duration-500 ease-out hover:scale-[1.015] active:scale-[0.985] sm:text-sm">
+                      Spotify <ExternalLink size={14} />
+                    </a>
+                    <a href={result.appleMusicUrl || appleMusicSearchUrl(result.song, result.artist)} target="_blank" rel="noreferrer" className="ios-glass flex items-center justify-center gap-2 rounded-2xl px-3 py-3 text-xs font-semibold text-white/78 transition duration-500 ease-out hover:scale-[1.015] active:scale-[0.985] sm:text-sm">
+                      Apple Music <ExternalLink size={14} />
+                    </a>
+                  </div>
                 </div>
 
                 <div className="mt-3 grid grid-cols-2 gap-3">

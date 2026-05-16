@@ -1298,20 +1298,84 @@ function buildInstantAuraResult(auraKey = "grungeNoir", colors = ["6d5dfc", "19d
   };
 }
 
+async function fetchAuraTrackApi(auraKey, excludedKeys = new Set(), genreSettings = DEFAULT_GENRE_SETTINGS, imageBrain = null) {
+  try {
+    const genres = enabledGenreKeys(genreSettings).join(",");
+    const visualTerms = (Array.isArray(imageBrain?.searchTerms) ? imageBrain.searchTerms : []).slice(0, 6).join(",");
+    const exclude = Array.from(excludedKeys).slice(0, 12).join("|");
+    const params = new URLSearchParams({ auraKey, genres, visualTerms, exclude, market: "US", _: String(Date.now()) });
+    const data = await fetchJson(`/api/aura-track?${params.toString()}`);
+    return data?.track ? normalizeDiscoveryTrack(data.track) : null;
+  } catch (error) {
+    console.warn("Aura server Spotify track failed", error);
+    return null;
+  }
+}
+
+async function fetchServerItunesDiscovery(auraKey, excludedKeys = new Set(), genreSettings = DEFAULT_GENRE_SETTINGS, imageBrain = null) {
+  const queries = discoveryQueriesForAura(auraKey, genreSettings, imageBrain);
+  const rescueQueries = [
+    { text: "today's top hits", genreKey: "pop" },
+    { text: "US hip hop hits", genreKey: "rapHipHop" },
+    { text: "US r&b hits", genreKey: "rbSoul" },
+    { text: "US alternative hits", genreKey: "indieAlt" },
+    { text: "US electronic hits", genreKey: "electronic" }
+  ];
+
+  for (const queryItem of [...queries.slice(0, 8), ...rescueQueries]) {
+    const rawQuery = typeof queryItem === "string" ? queryItem : queryItem.text;
+    const searchGenreKey = typeof queryItem === "string" ? "" : queryItem.genreKey;
+    try {
+      const params = new URLSearchParams({ q: rawQuery, limit: "35", _: String(Date.now()) });
+      const data = await fetchJson(`/api/itunes-search?${params.toString()}`);
+      const tracks = Array.isArray(data?.tracks) ? data.tracks : [];
+      const filtered = tracks
+        .filter((item) => item.previewUrl && item.song && item.artist)
+        .filter((item) => !looksLikeLowQualityMusicResult(item.song, item.artist, item.collectionName))
+        .filter((item) => !looksLikeNonUSLocalizedResult(item.song, item.artist, item.collectionName, item.primaryGenreName))
+        .filter((item) => !isExcludedTrack(item.song, item.artist, excludedKeys));
+
+      if (!filtered.length) continue;
+      const picked = randomItem(filtered.slice(0, Math.min(filtered.length, 10)));
+      return normalizeDiscoveryTrack({ ...picked, genreKey: searchGenreKey, searchGenreKey });
+    } catch (error) {
+      console.warn("Aura server iTunes discovery failed", rawQuery, error);
+    }
+  }
+
+  return null;
+}
+
 async function buildFreshAuraResult(auraKey, colors = ["6d5dfc", "19d8ff", "ff3df2"], genreSettings = DEFAULT_GENRE_SETTINGS, imageBrain = null) {
   const profile = AURA_PROFILES[auraKey] || AURA_PROFILES.grungeNoir;
-  const readableTextClass = useReadableAuraText(colors);
   const safeColors = colors?.length >= 3 ? colors : profile.colorFallback;
   const excludedKeys = getRecentSongKeys(18);
 
-  // No Spotify Premium required: Apple/iTunes is the primary live music source.
-  // Deezer is the backup. Spotify is only used as an optional external search link.
   let liveTrack = null;
 
-  try {
-    liveTrack = await fetchItunesDiscovery(auraKey, excludedKeys, genreSettings, imageBrain);
-  } catch (error) {
-    console.warn("Apple/iTunes aura discovery failed", error);
+  // First use same-origin Vercel APIs. This is much safer in iPhone Safari/PWA than
+  // asking the mobile browser to hit multiple third-party music APIs directly.
+  liveTrack = await fetchAuraTrackApi(auraKey, excludedKeys, genreSettings, imageBrain);
+
+  // Spotify artwork/track can exist without a playable 30s preview. Fill missing audio/art
+  // from Apple/iTunes through our own API so the Preview button has a real source.
+  if (liveTrack?.song && liveTrack?.artist && (!liveTrack.previewUrl || !liveTrack.albumArt)) {
+    const media = await fetchSongMedia(liveTrack.song, liveTrack.artist).catch(() => ({}));
+    liveTrack = normalizeDiscoveryTrack({ ...liveTrack, ...media });
+  }
+
+  if (!liveTrack?.song || !liveTrack?.artist || (!liveTrack.previewUrl && isMobileRuntime())) {
+    liveTrack = await fetchServerItunesDiscovery(auraKey, excludedKeys, genreSettings, imageBrain);
+  }
+
+  // Desktop can still use the older direct public providers as a backup. Mobile keeps this
+  // short and same-origin first to prevent Safari crashes/endless loops.
+  if (!liveTrack?.song || !liveTrack?.artist) {
+    try {
+      liveTrack = await fetchItunesDiscovery(auraKey, excludedKeys, genreSettings, imageBrain);
+    } catch (error) {
+      console.warn("Apple/iTunes direct aura discovery failed", error);
+    }
   }
 
   if (!liveTrack?.song || !liveTrack?.artist) {
@@ -1323,9 +1387,9 @@ async function buildFreshAuraResult(auraKey, colors = ["6d5dfc", "19d8ff", "ff3d
   }
 
   if (!liveTrack?.song || !liveTrack?.artist) {
-    // Mobile Safari can be stricter/slower with network calls after large image uploads.
-    // Never leave the user stuck on loading — use the curated aura pool as a guaranteed match.
-    liveTrack = buildLocalFallbackTrack(auraKey, excludedKeys, genreSettings);
+    const error = new Error("Aura could not reach live music providers.");
+    error.code = "NO_LIVE_TRACK";
+    throw error;
   }
 
   let media = liveTrack;
@@ -1333,7 +1397,7 @@ async function buildFreshAuraResult(auraKey, colors = ["6d5dfc", "19d8ff", "ff3d
     try {
       media = { ...liveTrack, ...(await fetchSongMedia(liveTrack.song, liveTrack.artist)) };
     } catch (error) {
-      console.warn("Aura media lookup failed; using generated fallback art", error);
+      console.warn("Aura media lookup failed; keeping provider track", error);
       media = liveTrack;
     }
   }
@@ -1341,7 +1405,7 @@ async function buildFreshAuraResult(auraKey, colors = ["6d5dfc", "19d8ff", "ff3d
   const previewUrl = media.previewUrl || "";
   const albumArt = media.albumArt || generatedAlbumArt(liveTrack.song, liveTrack.artist, safeColors);
   const auraName = generateAuraName(auraKey, imageBrain);
-  const spotifySearchUrl = `https://open.spotify.com/search/${encodeURIComponent(`${liveTrack.song} ${liveTrack.artist}`)}`;
+  const spotifySearchUrl = media.spotifyUrl || `https://open.spotify.com/search/${encodeURIComponent(`${liveTrack.song} ${liveTrack.artist}`)}`;
 
   return {
     auraKey,
@@ -1352,7 +1416,7 @@ async function buildFreshAuraResult(auraKey, colors = ["6d5dfc", "19d8ff", "ff3d
     mood: profile.mood,
     song: liveTrack.song,
     artist: liveTrack.artist,
-    reason: "Aura matched this from a live music search using the image mood, color, and energy.",
+    reason: "Aura matched this from live music providers using the image mood, color, and energy.",
     aiInsight: buildAuraInsight({ ...imageBrain, auraKey }, liveTrack.song),
     visualBrain: { ...imageBrain, auraKey },
     albumArt,
@@ -1360,14 +1424,14 @@ async function buildFreshAuraResult(auraKey, colors = ["6d5dfc", "19d8ff", "ff3d
     appleMusicUrl: media.appleMusicUrl || appleMusicSearchUrl(liveTrack.song, liveTrack.artist),
     collectionName: media.collectionName || "",
     spotifyUrl: spotifySearchUrl,
-    spotifyTrackId: "",
-    popularity: null,
+    spotifyTrackId: media.spotifyTrackId || "",
+    popularity: media.popularity ?? null,
     releaseYear: media.releaseYear || "",
-    genres: liveTrack.genres || [],
-    artistImage: liveTrack.artistImage || "",
-    artistFollowers: 0,
+    genres: liveTrack.genres || media.genres || [],
+    artistImage: liveTrack.artistImage || media.artistImage || "",
+    artistFollowers: liveTrack.artistFollowers ?? media.artistFollowers ?? 0,
     usMainstreamVerified: true,
-    spotifyVerified: false
+    spotifyVerified: !!(media.spotifyVerified || media.spotifyTrackId)
   };
 }
 
@@ -2332,6 +2396,23 @@ const auraRuntimeCss = `
     }
   }
 
+  .aura-mobile-stable .aura-trail,
+  .aura-mobile-stable .aura-gradient-mesh,
+  .aura-mobile-stable .aura-color-bloom {
+    opacity: .18 !important;
+    filter: blur(24px) !important;
+  }
+
+  .aura-mobile-stable .ios-glass,
+  .aura-mobile-stable .aura-result-card,
+  .aura-mobile-stable .unlock-split-card {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  .aura-mobile-stable * {
+    -webkit-tap-highlight-color: transparent;
+  }
 
   @media (max-width: 760px) {
     .aura-result-hero, .aura-result-card, .ios-glass { backdrop-filter: blur(18px) saturate(1.12); }
@@ -2367,6 +2448,18 @@ function safeLocalStorageSet(key, value) {
 
 const SILENT_AUDIO_SRC = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=";
 
+function isMobileRuntime() {
+  if (typeof window === "undefined" || typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  const touch = navigator.maxTouchPoints || 0;
+  return /iPhone|iPad|iPod|Android/i.test(ua) || (touch > 1 && window.innerWidth <= 900);
+}
+
+function isStandalonePwa() {
+  if (typeof window === "undefined") return false;
+  return window.matchMedia?.("(display-mode: standalone)")?.matches || window.navigator?.standalone === true;
+}
+
 
 function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -2377,28 +2470,27 @@ function readFileAsDataUrl(file) {
   });
 }
 
-async function prepareMobileSafeImage(file, maxSide = 1600) {
+async function prepareMobileSafeImage(file, maxSide = null) {
   const originalDataUrl = await readFileAsDataUrl(file);
+  const mobile = isMobileRuntime();
+  const targetMaxSide = maxSide || (mobile ? 900 : 1600);
+  const jpegQuality = mobile ? 0.72 : 0.86;
 
   return await new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
       try {
-        const width = img.naturalWidth || img.width || maxSide;
-        const height = img.naturalHeight || img.height || maxSide;
-        const scale = Math.min(1, maxSide / Math.max(width, height));
-
-        if (scale >= 1) {
-          resolve(originalDataUrl);
-          return;
-        }
-
+        const width = img.naturalWidth || img.width || targetMaxSide;
+        const height = img.naturalHeight || img.height || targetMaxSide;
+        const scale = Math.min(1, targetMaxSide / Math.max(width, height));
         const canvas = document.createElement("canvas");
         canvas.width = Math.max(1, Math.round(width * scale));
         canvas.height = Math.max(1, Math.round(height * scale));
-        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        const ctx = canvas.getContext("2d", { willReadFrequently: true, alpha: false });
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL("image/jpeg", 0.88));
+
+        // Always convert on mobile. Safari/PWA can crash when huge HEIC/PNG data URLs stay in state.
+        resolve(canvas.toDataURL("image/jpeg", jpegQuality));
       } catch (error) {
         console.warn("Aura image resize fallback used", error);
         resolve(originalDataUrl);
@@ -2730,12 +2822,27 @@ const entry = {
       try {
         const mood = await extractImageMood(image);
         const safeBrain = { ...mood.visualBrain, uploadedImage: image };
-        const safeResult = buildInstantAuraResult(mood.auraKey, mood.colors, genreSettings, safeBrain);
+        const safeResult = await fetchServerItunesDiscovery(mood.auraKey, new Set(), genreSettings, safeBrain);
+        if (!safeResult?.song) throw new Error("Live music timeout");
+        const profile = AURA_PROFILES[mood.auraKey] || AURA_PROFILES.grungeNoir;
         setImageColors(mood.colors);
         setLoading(false);
         setUnlocking(false);
         setUnlockResult(null);
-        setResult(safeResult);
+        setResult({
+          ...safeResult,
+          auraKey: mood.auraKey,
+          colors: mood.colors,
+          uploadedImage: image,
+          aura: generateAuraName(mood.auraKey, safeBrain),
+          mood: profile.mood,
+          reason: "Aura recovered with a live Apple/iTunes match after the mobile request took too long.",
+          aiInsight: buildAuraInsight({ ...safeBrain, auraKey: mood.auraKey }, safeResult.song),
+          visualBrain: { ...safeBrain, auraKey: mood.auraKey },
+          albumArt: safeResult.albumArt || generatedAlbumArt(safeResult.song, safeResult.artist, mood.colors),
+          spotifyUrl: safeResult.spotifyUrl || `https://open.spotify.com/search/${encodeURIComponent(`${safeResult.song} ${safeResult.artist}`)}`,
+          usMainstreamVerified: true
+        });
       } catch {
         setLoading(false);
         setUnlocking(false);
@@ -2780,7 +2887,10 @@ const entry = {
           colors: ["6d5dfc", "19d8ff", "ff3df2"],
           visualBrain: describeVisualBrain({})
         };
-        const built = buildInstantAuraResult(fallbackMood.auraKey, fallbackMood.colors, genreSettings, { ...fallbackMood.visualBrain, uploadedImage: image });
+        const safeBrain = { ...fallbackMood.visualBrain, uploadedImage: image };
+        const liveFallback = await fetchServerItunesDiscovery(fallbackMood.auraKey, new Set(), genreSettings, safeBrain);
+        if (!liveFallback?.song) throw new Error("No live fallback track");
+        const built = await buildFreshAuraResult(fallbackMood.auraKey, fallbackMood.colors, genreSettings, safeBrain);
         setLoading(false);
         setUnlocking(false);
         setResult(built);
@@ -3105,7 +3215,7 @@ const entry = {
 
 
   return (
-    <main style={gradientStyle} className="relative min-h-screen overflow-hidden bg-[#07080a] text-white">
+    <main style={gradientStyle} className={`relative min-h-screen overflow-hidden bg-[#07080a] text-white ${isCompactDevice || isStandalonePwa() ? "aura-mobile-stable" : ""}`}>
       <style>{auraRuntimeCss}</style>
       <audio
         ref={audioRef}
@@ -3140,7 +3250,7 @@ const entry = {
         animate={{ opacity: [0.62, 0.86, 0.62], scale: [1, 1.05, 1] }}
         transition={{ duration: 12, repeat: Infinity, ease: "easeInOut" }}
       />
-      {[0, 1, 2].map((trail) => (
+      {!isCompactDevice && [0, 1, 2].map((trail) => (
         <motion.div
           key={`trail-${trail}`}
           className="aura-trail fixed z-[2]"
@@ -3384,7 +3494,7 @@ const entry = {
       <AnimatePresence mode="wait">
         {unlockResult && <SongUnlockOverlay reveal={unlockResult} image={image} colors={unlockResult.colors || colors} />}
       </AnimatePresence>
-      <AmbientParticles colors={colors} active={loading || unlocking || !!result} />
+      {!isCompactDevice && <AmbientParticles colors={colors} active={loading || unlocking || !!result} />}
 
       <AnimatePresence>
         {result && (

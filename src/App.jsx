@@ -196,7 +196,7 @@ function generatedAlbumArt(song, artist, colors) {
 
 async function fetchJson(url, options = {}) {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 7000);
+  const timeout = window.setTimeout(() => controller.abort(), 5200);
 
   try {
     const res = await fetch(url, {
@@ -391,7 +391,8 @@ const DEFAULT_GENRE_SETTINGS = {
   electronic: true,
   pop: true,
   rock: true,
-  cinematic: true
+  cinematic: true,
+  reggaeton: true
 };
 
 const GENRE_OPTIONS = [
@@ -401,7 +402,8 @@ const GENRE_OPTIONS = [
   { key: "electronic", label: "Electronic", terms: ["electronic", "synthwave", "darkwave", "ambient electronic"] },
   { key: "pop", label: "Pop", terms: ["dark pop", "alt pop", "dream pop", "pop"] },
   { key: "rock", label: "Rock", terms: ["alternative rock", "post punk", "grunge", "guitar"] },
-  { key: "cinematic", label: "Cinematic", terms: ["cinematic", "atmospheric", "night drive", "moody soundtrack"] }
+  { key: "cinematic", label: "Cinematic", terms: ["cinematic", "atmospheric", "night drive", "moody soundtrack"] },
+  { key: "reggaeton", label: "Reggaeton", terms: ["reggaeton", "latin urban", "urbano", "latin trap"] }
 ];
 
 const GENRE_MATCHERS = {
@@ -411,7 +413,8 @@ const GENRE_MATCHERS = {
   electronic: ["electronic", "electronica", "dance", "edm", "house", "techno", "synth", "synthwave", "darkwave", "ambient"],
   pop: ["pop", "hyperpop", "dream pop", "alt pop"],
   rock: ["rock", "punk", "grunge", "metal", "guitar", "post-punk", "post punk"],
-  cinematic: ["soundtrack", "score", "cinematic", "orchestral", "movie", "film", "instrumental", "atmospheric"]
+  cinematic: ["soundtrack", "score", "cinematic", "orchestral", "movie", "film", "instrumental", "atmospheric"],
+  reggaeton: ["reggaeton", "urbano", "latin urban", "latin trap", "dembow", "perreo", "musica urbana", "música urbana"]
 };
 
 const STRICT_GENRE_QUERY_POOLS = {
@@ -435,6 +438,9 @@ const STRICT_GENRE_QUERY_POOLS = {
   ],
   cinematic: [
     "cinematic atmospheric", "movie soundtrack", "instrumental cinematic", "score ambient", "moody soundtrack", "atmospheric instrumental", "cinematic electronic", "night drive soundtrack"
+  ],
+  reggaeton: [
+    "US reggaeton hits", "latin urban hits US", "popular reggaeton", "urbano latino US", "latin trap US", "reggaeton night drive", "reggaeton pop", "mainstream reggaeton"
   ]
 };
 
@@ -497,7 +503,7 @@ function generateAuraName(auraKey = "grungeNoir", imageBrain = null) {
 // This gate keeps Aura away from obvious low-signal/cover/karaoke results and
 // only accepts tracks with a strong mainstream signal from the provider result.
 const MIN_PUBLIC_ARTIST_SIGNAL = 100000;
-const ITUNES_MAINSTREAM_WINDOW = 16;
+const ITUNES_MAINSTREAM_WINDOW = 10;
 
 function looksLikeLowQualityMusicResult(song = "", artist = "", collection = "") {
   const text = compactGenreText(`${song} ${artist} ${collection}`);
@@ -508,6 +514,27 @@ function looksLikeLowQualityMusicResult(song = "", artist = "", collection = "")
     "tiktok", "8d audio", "lofi version", "tribute to", "the hit crew"
   ];
   return blocked.some((term) => text.includes(term));
+}
+
+function looksLikeNonUSLocalizedResult(song = "", artist = "", collection = "", primaryGenreName = "") {
+  // Aura should feel U.S.-mainstream. This blocks obvious regional-only buckets
+  // while still allowing Latin/reggaeton artists that chart heavily in the U.S.
+  const text = compactGenreText(`${song} ${artist} ${collection} ${primaryGenreName}`);
+  const blocked = [
+    "bollywood", "tollywood", "kollywood", "punjabi", "bhangra", "desi",
+    "indian pop", "indian film", "filmi", "ghazal", "qawwali", "hindi",
+    "tamil", "telugu", "kannada", "malayalam", "marathi", "bengali",
+    "k-pop", "korean", "j-pop", "japanese idol", "anime",
+    "mandopop", "cantopop", "c-pop", "opm", "afrobeats-only"
+  ];
+  return blocked.some((term) => text.includes(term));
+}
+
+function hasStrongUSSignal(item = {}, source = "itunes", index = 0) {
+  // iTunes request is country=US, so the ranking is our best public proxy for U.S. popularity.
+  // Deezer has rank; pair it with the query + genre gate for a stronger mainstream filter.
+  if (source === "deezer") return hasMainstreamProviderSignal(item, source, index);
+  return index < ITUNES_MAINSTREAM_WINDOW;
 }
 
 function hasMainstreamProviderSignal(item = {}, source = "itunes", index = 0) {
@@ -527,8 +554,13 @@ function providerGenreMatchesSearch(item = {}, searchGenreKey = null, source = "
     ? [item.primaryGenreName, item.trackName, item.collectionName, item.artistName].filter(Boolean).join(" ")
     : [item.title, item.album?.title, item.artist?.name].filter(Boolean).join(" ");
   const detected = genreKeysFromText(text);
-  if (!detected.length) return true;
-  return detected.includes(searchGenreKey);
+  if (detected.length) return detected.includes(searchGenreKey);
+
+  // If the provider gives vague genre metadata, only allow the track when the
+  // actual search bucket is explicit enough to trust. This keeps toggles strict.
+  const trustedSearchTerms = STRICT_GENRE_QUERY_POOLS[searchGenreKey] || [];
+  const compactText = compactGenreText(text);
+  return trustedSearchTerms.some((term) => compactText.includes(compactGenreText(term).split(" ")[0]));
 }
 
 const US_MAINSTREAM_FILTER = {
@@ -939,7 +971,8 @@ async function fetchItunesDiscovery(auraKey, excludedKeys = new Set(), genreSett
         .map((item, index) => ({ ...item, __rankIndex: index }))
         .filter((item) => item.previewUrl && item.trackName && item.artistName)
         .filter((item) => !looksLikeLowQualityMusicResult(item.trackName, item.artistName, item.collectionName))
-        .filter((item) => hasMainstreamProviderSignal(item, "itunes", item.__rankIndex))
+        .filter((item) => !looksLikeNonUSLocalizedResult(item.trackName, item.artistName, item.collectionName, item.primaryGenreName))
+        .filter((item) => hasStrongUSSignal(item, "itunes", item.__rankIndex))
         .filter((item) => providerGenreMatchesSearch(item, searchGenreKey, "itunes"))
         .filter((item) => !isExcludedTrack(item.trackName, item.artistName, excludedKeys))
         .filter((item) => isTrackAllowedByGenre(item.trackName, item.artistName, {
@@ -991,14 +1024,15 @@ async function fetchDeezerDiscovery(auraKey, excludedKeys = new Set(), genreSett
           .map((item, index) => ({ ...item, __rankIndex: index }))
           .filter((item) => item.preview && item.title && item.artist?.name)
           .filter((item) => !looksLikeLowQualityMusicResult(item.title, item.artist?.name, item.album?.title))
-          .filter((item) => hasMainstreamProviderSignal(item, "deezer", item.__rankIndex))
+          .filter((item) => !looksLikeNonUSLocalizedResult(item.title, item.artist?.name, item.album?.title, ""))
+          .filter((item) => hasStrongUSSignal(item, "deezer", item.__rankIndex))
           .filter((item) => providerGenreMatchesSearch(item, searchGenreKey, "deezer"))
           .filter((item) => !isExcludedTrack(item.title, item.artist?.name, excludedKeys))
           .filter((item) => genreAllowedForSettings([searchGenreKey].filter(Boolean), genreSettings, false));
 
         if (!results.length) continue;
 
-        const topWindow = results.slice(0, Math.min(results.length, 28));
+        const topWindow = results.slice(0, Math.min(results.length, 14));
         const picked = randomItem(topWindow);
         const previewUrl = picked.preview?.replace("http://", "https://") || "";
 
@@ -2272,6 +2306,9 @@ export default function App() {
   const colors = liveCameraOpen ? (liveAura?.colors || imageColors) : (result?.colors || unlockResult?.colors || imageColors);
   const environmentKey = liveCameraOpen ? liveAura?.auraKey : (result?.auraKey || unlockResult?.auraKey);
   const environment = AURA_ENVIRONMENTS[environmentKey] || AURA_ENVIRONMENTS.grungeNoir;
+  const isCompactDevice = typeof window !== "undefined" && window.innerWidth < 760;
+  const environmentBlur = isCompactDevice ? "42px" : environment.blur;
+  const environmentOpacity = isCompactDevice ? Math.min(environment.opacity || 0.22, 0.2) : (environment.opacity || 0.22);
 
   const gradientStyle = useMemo(() => ({
     "--aura-a": readableAccent(colors[0]),
@@ -3294,12 +3331,12 @@ const entry = {
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,.045),transparent_44%)]" />
         <motion.div
           animate={{
-            opacity: audioReactive ? [environment.opacity, environment.opacity + 0.18, environment.opacity] : [environment.opacity * 0.55, environment.opacity, environment.opacity * 0.55],
+            opacity: audioReactive ? [environmentOpacity, environmentOpacity + 0.12, environmentOpacity] : [environmentOpacity * 0.55, environmentOpacity, environmentOpacity * 0.55],
             scale: audioReactive ? [1, 1.12, 1] : [1, 1.05, 1]
           }}
           transition={{ duration: audioReactive ? 2.2 : 6.5, repeat: Infinity, ease: "easeInOut" }}
           className="absolute inset-0 bg-[radial-gradient(circle_at_center,var(--aura-a),transparent_58%)]"
-          style={{ filter: `blur(${environment.blur})` }}
+          style={{ filter: `blur(${environmentBlur})` }}
         />
 
       </div>

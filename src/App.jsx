@@ -2566,7 +2566,8 @@ const entry = {
       audio.currentTime = 0;
       audio.playsInline = true;
       audio.preload = "auto";
-      audio.crossOrigin = "anonymous";
+      // Do not set crossOrigin here. Apple/Deezer preview hosts can reject CORS-enabled media requests,
+      // even though normal <audio> playback is allowed. Setting crossOrigin caused silent playback failures.
 
       if (audio.src !== previewUrl) {
         audio.src = previewUrl;
@@ -2694,9 +2695,12 @@ const entry = {
           setAudioReactive(false);
         }}
         onError={() => {
+          const err = audioRef.current?.error;
+          console.warn("Audio element failed", err);
           setPlaying(false);
           setAudioReactive(false);
           setPreviewLoading(false);
+          setPreviewError("This preview link failed to load. Tap Similar Track for another playable match.");
         }}
       />
 

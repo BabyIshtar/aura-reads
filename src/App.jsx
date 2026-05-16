@@ -1987,38 +1987,6 @@ const auraRuntimeCss = `
     transform: translate3d(0,0,0);
   }
 
-  @media (max-width: 768px), (pointer: coarse), (prefers-reduced-motion: reduce) {
-    .aura-trail,
-    .aura-color-bloom,
-    .aura-sphere::before,
-    .aura-unlock-wash,
-    .aura-unlock-sweep {
-      display: none !important;
-    }
-
-    .aura-gradient-mesh {
-      filter: none !important;
-      opacity: .58 !important;
-    }
-
-    .aura-sphere-wrap {
-      filter: drop-shadow(0 0 30px color-mix(in srgb, var(--aura-b) 55%, transparent)) drop-shadow(0 18px 44px rgba(0,0,0,.48)) !important;
-    }
-
-    .aura-sphere,
-    .ios-glass,
-    .unlock-split-card,
-    .aura-history-card {
-      backdrop-filter: blur(12px) saturate(1.08) !important;
-      -webkit-backdrop-filter: blur(12px) saturate(1.08) !important;
-    }
-
-    .aura-plasma {
-      animation: none !important;
-      filter: saturate(1.12) contrast(1.02) !important;
-    }
-  }
-
   @media (max-width: 480px) {
     .aura-trail {
       width: 6.5rem;
@@ -2050,13 +2018,41 @@ const auraRuntimeCss = `
         inset 0 -40px 76px rgba(0,0,0,.55);
     }
   }
+
+  /* SAFE MOBILE PERFORMANCE PATCH: keeps working audio untouched */
+  @media (max-width: 768px) {
+    .aura-sphere::before,
+    .aura-unlock-wash,
+    .aura-unlock-sweep {
+      display: none !important;
+    }
+
+    .aura-gradient-mesh {
+      filter: blur(34px) !important;
+      opacity: 0.34 !important;
+      transform: translate3d(0,0,0) scale(0.92) !important;
+    }
+
+    .aura-bg-orb,
+    .aura-light-trail,
+    .aura-floating-particle {
+      animation-duration: 18s !important;
+      filter: blur(18px) !important;
+      opacity: 0.32 !important;
+    }
+
+    .aura-glass,
+    .aura-result-card {
+      backdrop-filter: blur(14px) !important;
+      -webkit-backdrop-filter: blur(14px) !important;
+    }
+  }
+
 `;
 
 
 function shouldAttemptAutoplay() {
-  // Browsers, especially iOS Safari, often block programmatic autoplay after async work.
-  // Keep previews manual-first so the audio element does not get stuck in a failed state.
-  return false;
+  return true;
 }
 
 function safeLocalStorageGet(key, fallback = null) {
@@ -2142,14 +2138,6 @@ export default function App() {
   }), [colors]);
 
   const enabledGenresCount = GENRE_OPTIONS.filter((genre) => genreSettings[genre.key]).length;
-  const lowPowerMode = useMemo(() => {
-    if (typeof window === "undefined") return false;
-    const coarsePointer = window.matchMedia?.("(pointer: coarse)")?.matches;
-    const narrowScreen = window.innerWidth < 768;
-    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
-    const lowMemory = Number(navigator.deviceMemory || 8) <= 4;
-    return Boolean(reducedMotion || narrowScreen || coarsePointer || lowMemory);
-  }, []);
 
 
   useEffect(() => {
@@ -2314,17 +2302,22 @@ const entry = {
     const audio = audioRef.current;
     if (!audio) return false;
 
-    // Do not swap the element to a silent data source here. That was causing some
-    // mobile browsers to keep the element in a failed/paused state before the real
-    // preview URL was assigned. Real playback now starts only from the Play button.
     try {
       clearFadeTimer();
       audio.pause();
-      audio.loop = false;
-      audio.muted = false;
-      audio.volume = 1;
+      audio.loop = true;
+      audio.muted = true;
+      audio.volume = 0;
       audio.playsInline = true;
-      audio.preload = "metadata";
+      audio.preload = "auto";
+
+      if (audio.src !== SILENT_AUDIO_SRC) {
+        audio.src = SILENT_AUDIO_SRC;
+        audio.load();
+      }
+
+      const prime = audio.play();
+      if (prime !== undefined) await prime.catch(() => {});
       audioUnlockedRef.current = true;
       return true;
     } catch (error) {
@@ -2716,8 +2709,8 @@ const entry = {
       <audio
         ref={audioRef}
         playsInline
-        preload="metadata"
-        style={{ display: "block", width: 0, height: 0, opacity: 0, pointerEvents: "none", position: "absolute" }}
+        preload="auto"
+        className="hidden"
         onCanPlay={() => setPreviewLoading(false)}
         onPlay={() => {
           setPlaying(true);
@@ -2743,10 +2736,10 @@ const entry = {
 
       <motion.div
         className="aura-gradient-mesh pointer-events-none fixed inset-0"
-        animate={lowPowerMode ? { opacity: 0.58, scale: 1 } : { opacity: [0.62, 0.86, 0.62], scale: [1, 1.05, 1] }}
-        transition={{ duration: lowPowerMode ? 0.2 : 12, repeat: lowPowerMode ? 0 : Infinity, ease: "easeInOut" }}
+        animate={{ opacity: [0.62, 0.86, 0.62], scale: [1, 1.05, 1] }}
+        transition={{ duration: 12, repeat: Infinity, ease: "easeInOut" }}
       />
-      {!lowPowerMode && [0, 1, 2].map((trail) => (
+      {[0, 1, 2].map((trail) => (
         <motion.div
           key={`trail-${trail}`}
           className="aura-trail fixed z-[2]"

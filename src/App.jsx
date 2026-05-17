@@ -1,4 +1,94 @@
 
+/* === AURA POLISH PASS === */
+if (typeof document !== 'undefined' && !document.getElementById('aura-polish-pass')) {
+  const style = document.createElement('style');
+  style.id = 'aura-polish-pass';
+  style.innerHTML = `
+    .uploaded-aura-image,
+    .mobile-result-image {
+      width: 100% !important;
+      aspect-ratio: 1 / 1 !important;
+      max-height: 320px !important;
+      object-fit: cover !important;
+      object-position: center !important;
+      border-radius: 30px !important;
+      border: 1px solid rgba(255,255,255,0.12) !important;
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,0.06),
+        0 0 18px rgba(120,220,255,0.18),
+        0 0 40px rgba(160,80,255,0.16);
+      background:
+        linear-gradient(rgba(255,255,255,0.03), rgba(255,255,255,0.01)),
+        url('/charcoal-texture.png');
+      background-size: cover;
+      overflow: hidden !important;
+    }
+
+    .glass-panel,
+    .image-bubble,
+    .album-bubble,
+    .pristine-card {
+      border: 1px solid rgba(255,255,255,0.08) !important;
+      background:
+        linear-gradient(
+          180deg,
+          rgba(28,28,28,0.88),
+          rgba(10,10,10,0.92)
+        ),
+        url('/charcoal-texture.png');
+      background-size: cover;
+      box-shadow:
+        0 0 16px rgba(120,220,255,0.08),
+        0 0 34px rgba(180,80,255,0.08);
+      backdrop-filter: blur(22px);
+    }
+
+    .album-popup,
+    .tap-popup,
+    .artist-popup {
+      overflow-y: auto !important;
+      max-height: 82vh !important;
+      border-radius: 28px !important;
+      padding: 18px !important;
+    }
+
+    .share-aura-btn,
+    .share-export-btn {
+      border-radius: 22px !important;
+      backdrop-filter: blur(18px);
+      transition: all .25s ease;
+    }
+
+    .share-aura-btn:hover,
+    .share-export-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 0 20px rgba(120,220,255,0.14);
+    }
+
+    @media (max-width: 768px) {
+      .uploaded-aura-image,
+      .mobile-result-image {
+        max-width: 88vw !important;
+        max-height: 290px !important;
+        margin: 0 auto !important;
+      }
+
+      .album-popup,
+      .tap-popup,
+      .artist-popup {
+        padding-bottom: 80px !important;
+      }
+
+      .results-screen,
+      .aura-results-screen {
+        gap: 8px !important;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+
 /* === NEXT GEN AURA IMPROVEMENTS === */
 if (typeof document !== 'undefined' && !document.getElementById('aura-next-gen-pack')) {
   const style = document.createElement('style');

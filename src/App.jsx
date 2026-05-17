@@ -1,3 +1,69 @@
+
+/* === NEXT GEN AURA IMPROVEMENTS === */
+if (typeof document !== 'undefined' && !document.getElementById('aura-next-gen-pack')) {
+  const style = document.createElement('style');
+  style.id = 'aura-next-gen-pack';
+  style.innerHTML = `
+    .cinematic-reveal {
+      animation: auraReveal 0.9s cubic-bezier(.22,1,.36,1);
+    }
+
+    @keyframes auraReveal {
+      0% {
+        opacity: 0;
+        transform: translateY(24px) scale(0.96);
+        filter: blur(12px);
+      }
+
+      100% {
+        opacity: 1;
+        transform: translateY(0px) scale(1);
+        filter: blur(0px);
+      }
+    }
+
+    .pristine-card {
+      background:
+        linear-gradient(
+          180deg,
+          rgba(34,34,34,0.82),
+          rgba(8,8,8,0.92)
+        );
+      border: 1px solid rgba(255,255,255,0.08);
+      box-shadow:
+        0 0 40px rgba(120,120,255,0.12),
+        0 0 90px rgba(0,0,0,0.45);
+      backdrop-filter: blur(22px);
+    }
+
+    .share-export-btn {
+      background: linear-gradient(
+        135deg,
+        rgba(255,255,255,0.16),
+        rgba(255,255,255,0.06)
+      );
+    }
+
+    @media (max-width: 768px) {
+      .uploaded-aura-image,
+      .mobile-result-image {
+        height: 24vh !important;
+        max-height: 220px !important;
+      }
+
+      .mobile-results-layout {
+        gap: 8px !important;
+      }
+
+      .pristine-card {
+        padding: 14px !important;
+        border-radius: 28px !important;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Camera, ImagePlus, Music, RefreshCw, Sparkles, ExternalLink, Play, Pause, Settings, X } from "lucide-react";
@@ -3932,3 +3998,13 @@ const entry = {
 window.addEventListener('unhandledrejection', () => {
   console.log('Prevented mobile crash');
 });
+
+
+// anti-repeat song engine groundwork
+const usedSongIds = new Set();
+
+const isSongRepeated = (id) => usedSongIds.has(id);
+
+const rememberSong = (id) => {
+  usedSongIds.add(id);
+};

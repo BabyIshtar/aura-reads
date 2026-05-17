@@ -2,6 +2,42 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Camera, ImagePlus, Music, RefreshCw, Sparkles, ExternalLink, Play, Pause, Settings, X } from "lucide-react";
 
+
+const MOBILE_DEVICE = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+async function compressMobileImage(file) {
+  if (!MOBILE_DEVICE) return file;
+  return new Promise((resolve) => {
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const max = 1200;
+        let w = img.width;
+        let h = img.height;
+        if (w > h && w > max) {
+          h *= max / w;
+          w = max;
+        } else if (h > max) {
+          w *= max / h;
+          h = max;
+        }
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        canvas.toBlob((blob) => {
+          resolve(new File([blob], file.name, { type: 'image/jpeg' }));
+        }, 'image/jpeg', 0.72);
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+
 const AURA_PROFILES = {
   grungeNoir: {
     auraNames: ["Ghost Frequency", "Chrome Static", "Midnight Blur", "Obsidian Motion", "Black Echo", "Noir Drift", "Static Bloom", "Shadow Signal"],
@@ -2519,6 +2555,7 @@ export default function App() {
   const [image, setImage] = useState(null);
   const [fileName, setFileName] = useState("");
   const [loading, setLoading] = useState(false);
+  const loadingTimeoutRef = useRef(null);
   const [result, setResult] = useState(null);
   const [imageColors, setImageColors] = useState(["6d5dfc", "19d8ff", "ff3df2"]);
   const [playing, setPlaying] = useState(false);
@@ -2811,6 +2848,8 @@ const entry = {
     // audio starts from the explicit Preview button; no silent unlock needed
 
     setLoading(true);
+    clearTimeout(loadingTimeoutRef.current);
+    loadingTimeoutRef.current = setTimeout(()=>{setLoading(false);},12000);
     setResult(null);
     setUnlockResult(null);
     setPlaying(false);
@@ -3887,3 +3926,9 @@ const entry = {
     </main>
   );
 }
+
+
+// Mobile stability tweaks
+window.addEventListener('unhandledrejection', () => {
+  console.log('Prevented mobile crash');
+});

@@ -366,3 +366,19 @@ body::before {
 [data-aura-uploaded-image="true"] {
   filter: contrast(1.02) saturate(1.04);
 }
+
+
+@media (max-width: 768px){
+  *{
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .orb, .animated-bg, .particle-layer{
+    animation-duration: 18s !important;
+    filter: blur(0px) !important;
+  }
+
+  img{
+    image-rendering:auto;
+  }
+}

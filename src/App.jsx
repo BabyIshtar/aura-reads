@@ -1,4 +1,97 @@
 
+/* === AURA INTELLIGENCE PACK === */
+if (typeof document !== 'undefined' && !document.getElementById('aura-intelligence-pack')) {
+  const style = document.createElement('style');
+  style.id = 'aura-intelligence-pack';
+  style.innerHTML = `
+    .cinematic-reveal {
+      animation: cinematicReveal 1s cubic-bezier(.22,1,.36,1);
+    }
+
+    @keyframes cinematicReveal {
+      0% {
+        opacity: 0;
+        transform: scale(.94) translateY(18px);
+        filter: blur(14px);
+      }
+      100% {
+        opacity: 1;
+        transform: scale(1) translateY(0px);
+        filter: blur(0px);
+      }
+    }
+
+    .adaptive-glow {
+      box-shadow:
+        0 0 18px var(--aura-primary, rgba(120,220,255,.24)),
+        0 0 50px var(--aura-secondary, rgba(180,80,255,.20));
+    }
+
+    .story-card {
+      aspect-ratio: 9 / 16;
+      border-radius: 34px;
+      overflow: hidden;
+      padding: 22px;
+      background:
+        radial-gradient(circle at top,
+        rgba(255,255,255,.08),
+        rgba(0,0,0,.92)),
+        url('/charcoal-texture.png');
+      background-size: cover;
+    }
+
+    .particle-overlay::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at 20% 20%, rgba(255,255,255,.05), transparent 22%),
+        radial-gradient(circle at 80% 40%, rgba(120,220,255,.08), transparent 18%),
+        radial-gradient(circle at 60% 80%, rgba(180,80,255,.08), transparent 20%);
+      pointer-events: none;
+      mix-blend-mode: screen;
+    }
+
+    .micro-float {
+      transition: transform .28s ease, box-shadow .28s ease;
+    }
+
+    .micro-float:hover {
+      transform: translateY(-2px) scale(1.01);
+    }
+
+    @media (max-width: 768px) {
+      .uploaded-aura-image,
+      .mobile-result-image {
+        max-height: 300px !important;
+      }
+
+      .story-card {
+        padding: 18px;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+// Adaptive color extraction groundwork
+const applyAuraColors = (colors = ['#78dcff', '#b450ff']) => {
+  document.documentElement.style.setProperty('--aura-primary', colors[0]);
+  document.documentElement.style.setProperty('--aura-secondary', colors[1]);
+};
+
+// smarter anti-repeat groundwork
+const auraSongMemory = new Set();
+
+const rememberAuraSong = (id) => {
+  auraSongMemory.add(id);
+};
+
+const alreadyPlayedAuraSong = (id) => {
+  return auraSongMemory.has(id);
+};
+
+
 /* === AURA POLISH PASS === */
 if (typeof document !== 'undefined' && !document.getElementById('aura-polish-pass')) {
   const style = document.createElement('style');

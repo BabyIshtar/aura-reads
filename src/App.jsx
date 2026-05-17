@@ -1,4 +1,143 @@
 
+/* === REAL AURA COLOR + STORY EXPORT PACK === */
+import html2canvas from "html2canvas";
+
+const extractAuraColors = (img) => {
+  try {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+
+    canvas.width = 60;
+    canvas.height = 60;
+
+    ctx.drawImage(img, 0, 0, 60, 60);
+
+    const data = ctx.getImageData(0,0,60,60).data;
+
+    let r = 0, g = 0, b = 0;
+    let count = 0;
+
+    for (let i = 0; i < data.length; i += 16) {
+      r += data[i];
+      g += data[i + 1];
+      b += data[i + 2];
+      count++;
+    }
+
+    r = Math.floor(r / count);
+    g = Math.floor(g / count);
+    b = Math.floor(b / count);
+
+    const primary = `rgb(${r}, ${g}, ${b})`;
+    const secondary = `rgb(${Math.min(255,r+45)}, ${Math.min(255,g+25)}, ${Math.min(255,b+65)})`;
+
+    document.documentElement.style.setProperty('--aura-primary', primary);
+    document.documentElement.style.setProperty('--aura-secondary', secondary);
+
+  } catch (e) {
+    console.log("Aura color extraction failed");
+  }
+};
+
+const exportAuraStory = async () => {
+  const card = document.getElementById('aura-story-export');
+  if (!card) return;
+
+  const canvas = await html2canvas(card, {
+    scale: 2,
+    backgroundColor: null,
+  });
+
+  const link = document.createElement('a');
+  link.download = 'aura-story.png';
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+};
+
+// persistent anti-repeat storage
+const auraRecentSongs = JSON.parse(
+  localStorage.getItem('auraRecentSongs') || '[]'
+);
+
+const rememberAuraTrack = (trackId) => {
+  const updated = [trackId, ...auraRecentSongs.filter(i => i !== trackId)].slice(0, 30);
+  localStorage.setItem('auraRecentSongs', JSON.stringify(updated));
+};
+
+const wasAuraTrackUsed = (trackId) => {
+  return auraRecentSongs.includes(trackId);
+};
+
+if (typeof document !== 'undefined' && !document.getElementById('real-aura-pack')) {
+  const style = document.createElement('style');
+  style.id = 'real-aura-pack';
+
+  style.innerHTML = `
+    :root {
+      --aura-primary: #78dcff;
+      --aura-secondary: #b450ff;
+    }
+
+    .adaptive-aura-border {
+      border: 1px solid rgba(255,255,255,0.10);
+      box-shadow:
+        0 0 18px color-mix(in srgb, var(--aura-primary) 45%, transparent),
+        0 0 42px color-mix(in srgb, var(--aura-secondary) 35%, transparent);
+    }
+
+    .adaptive-aura-glow {
+      background:
+        radial-gradient(circle at top,
+        color-mix(in srgb, var(--aura-primary) 14%, transparent),
+        transparent 60%),
+        radial-gradient(circle at bottom,
+        color-mix(in srgb, var(--aura-secondary) 12%, transparent),
+        rgba(0,0,0,.92));
+    }
+
+    .story-export-card {
+      aspect-ratio: 9 / 16;
+      border-radius: 34px;
+      overflow: hidden;
+      padding: 22px;
+      position: relative;
+      background:
+        linear-gradient(
+          180deg,
+          rgba(20,20,20,.74),
+          rgba(8,8,8,.94)
+        ),
+        url('/charcoal-texture.png');
+      background-size: cover;
+    }
+
+    .story-export-card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at top,
+        color-mix(in srgb, var(--aura-primary) 22%, transparent),
+        transparent 50%),
+        radial-gradient(circle at bottom,
+        color-mix(in srgb, var(--aura-secondary) 18%, transparent),
+        transparent 50%);
+      pointer-events: none;
+    }
+
+    @media (max-width: 768px) {
+      .uploaded-aura-image,
+      .mobile-result-image {
+        max-width: 84vw !important;
+        aspect-ratio: 1 / 1 !important;
+      }
+    }
+  `;
+
+  document.head.appendChild(style);
+}
+
+
 /* === AURA INTELLIGENCE PACK === */
 if (typeof document !== 'undefined' && !document.getElementById('aura-intelligence-pack')) {
   const style = document.createElement('style');

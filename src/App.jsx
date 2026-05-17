@@ -64,6 +64,70 @@ if (typeof document !== 'undefined' && !document.getElementById('aura-next-gen-p
   document.head.appendChild(style);
 }
 
+
+
+/* === REAL MOBILE RESULT + SHARE CARD FIX === */
+if (typeof document !== 'undefined' && !document.getElementById('aura-real-result-fix')) {
+  const style = document.createElement('style');
+  style.id = 'aura-real-result-fix';
+  style.innerHTML = `
+    @media (max-width: 768px) {
+      .aura-result-hero {
+        margin-bottom: 12px !important;
+        border-radius: 28px !important;
+        padding: 6px !important;
+      }
+
+      .aura-result-image-square {
+        aspect-ratio: 1 / 1 !important;
+        min-height: 0 !important;
+        height: auto !important;
+        max-height: min(52vw, 238px) !important;
+        width: 100% !important;
+        padding: 0 !important;
+      }
+
+      .aura-result-image-square img[data-aura-uploaded-image='true'] {
+        width: 100% !important;
+        height: 100% !important;
+        min-height: 0 !important;
+        max-height: none !important;
+        aspect-ratio: 1 / 1 !important;
+        object-fit: cover !important;
+        object-position: center !important;
+        border-radius: 22px !important;
+      }
+
+      .aura-result-card {
+        padding: 15px !important;
+        border-radius: 26px !important;
+      }
+
+      .aura-result-title {
+        font-size: clamp(2rem, 9vw, 2.8rem) !important;
+        line-height: 0.9 !important;
+      }
+
+      .aura-mobile-action-grid {
+        margin-top: 10px !important;
+        gap: 10px !important;
+      }
+
+      .aura-artist-scroll-panel {
+        max-height: 100dvh !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        overscroll-behavior: contain !important;
+      }
+
+      .aura-artist-scroll-panel > div {
+        min-height: auto !important;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Camera, ImagePlus, Music, RefreshCw, Sparkles, ExternalLink, Play, Pause, Settings, X } from "lucide-react";
@@ -2639,6 +2703,7 @@ export default function App() {
   });
   const [liveCapturing, setLiveCapturing] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [shareCardOpen, setShareCardOpen] = useState(false);
   const [installReady, setInstallReady] = useState(false);
   const [genreSettings, setGenreSettings] = useState(() => {
     try {
@@ -2724,6 +2789,120 @@ export default function App() {
     installPromptRef.current = null;
     setInstallReady(false);
   }
+
+  async function downloadAuraShareCard() {
+    if (!result) return;
+
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = 1080;
+      canvas.height = 1920;
+      const ctx = canvas.getContext("2d");
+      const c = result.colors || colors || ["6d5dfc", "19d8ff", "ff3df2"];
+
+      const bg = ctx.createLinearGradient(0, 0, 1080, 1920);
+      bg.addColorStop(0, `#${String(c[0]).replace("#", "")}`);
+      bg.addColorStop(0.46, "#050607");
+      bg.addColorStop(1, `#${String(c[2] || c[1]).replace("#", "")}`);
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, 1080, 1920);
+
+      ctx.fillStyle = "rgba(0,0,0,0.42)";
+      ctx.fillRect(0, 0, 1080, 1920);
+
+      const imgSrc = result.uploadedImage || image;
+      if (imgSrc) {
+        await new Promise((resolve) => {
+          const img = new Image();
+          img.onload = () => {
+            const size = 780;
+            const x = 150;
+            const y = 300;
+            const srcSize = Math.min(img.width, img.height);
+            const sx = (img.width - srcSize) / 2;
+            const sy = (img.height - srcSize) / 2;
+            ctx.save();
+            roundRect(ctx, x, y, size, size, 58);
+            ctx.clip();
+            ctx.drawImage(img, sx, sy, srcSize, srcSize, x, y, size, size);
+            ctx.restore();
+            resolve();
+          };
+          img.onerror = resolve;
+          img.src = imgSrc;
+        });
+      }
+
+      ctx.textAlign = "center";
+      ctx.fillStyle = "rgba(255,255,255,0.72)";
+      ctx.font = "700 34px Arial";
+      ctx.fillText("AURA READING", 540, 188);
+
+      ctx.fillStyle = "white";
+      ctx.shadowColor = "rgba(255,255,255,0.85)";
+      ctx.shadowBlur = 28;
+      ctx.font = "800 92px Arial";
+      wrapCanvasText(ctx, result.aura || "Aura Match", 540, 1240, 860, 96);
+      ctx.shadowBlur = 0;
+
+      ctx.fillStyle = "rgba(255,255,255,0.78)";
+      ctx.font = "600 46px Arial";
+      wrapCanvasText(ctx, result.song || "Unknown Song", 540, 1510, 820, 54);
+      ctx.fillStyle = "rgba(255,255,255,0.52)";
+      ctx.font = "400 38px Arial";
+      wrapCanvasText(ctx, result.artist || "Unknown Artist", 540, 1604, 820, 48);
+
+      ctx.fillStyle = "rgba(255,255,255,0.38)";
+      ctx.font = "500 28px Arial";
+      ctx.fillText("made with Aura", 540, 1810);
+
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png", 0.95));
+      if (!blob) return;
+      const file = new File([blob], "aura-reading.png", { type: "image/png" });
+
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], title: "My Aura Reading", text: `${result.aura} — ${result.song} by ${result.artist}` });
+      } else {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "aura-reading.png";
+        link.click();
+        URL.revokeObjectURL(url);
+      }
+    } catch (error) {
+      console.warn("Aura share export failed", error);
+      setPreviewError("Share card could not export on this browser. Try Safari's share button or screenshot the card.");
+    }
+  }
+
+  function roundRect(ctx, x, y, width, height, radius) {
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.arcTo(x + width, y, x + width, y + height, radius);
+    ctx.arcTo(x + width, y + height, x, y + height, radius);
+    ctx.arcTo(x, y + height, x, y, radius);
+    ctx.arcTo(x, y, x + width, y, radius);
+    ctx.closePath();
+  }
+
+  function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight) {
+    const words = String(text || "").split(" ");
+    let line = "";
+    let currentY = y;
+    for (const word of words) {
+      const testLine = line ? `${line} ${word}` : word;
+      if (ctx.measureText(testLine).width > maxWidth && line) {
+        ctx.fillText(line, x, currentY);
+        line = word;
+        currentY += lineHeight;
+      } else {
+        line = testLine;
+      }
+    }
+    if (line) ctx.fillText(line, x, currentY);
+  }
+
 
 
 
@@ -3639,7 +3818,7 @@ const entry = {
       <AnimatePresence>
         {immersiveMode && result && (
           <motion.div
-            className="fixed inset-0 z-[70] overflow-hidden bg-[#020304]"
+            className="aura-artist-scroll-panel fixed inset-0 z-[70] overflow-y-auto bg-[#020304]"
             initial={{ opacity: 0, scale: 1.04 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 1.02 }}
@@ -3657,7 +3836,7 @@ const entry = {
             <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,.35),rgba(0,0,0,.78))]" />
             <div className="absolute inset-0" style={{ background: environment.overlay }} />
 
-            <div className="relative z-10 flex min-h-screen flex-col items-center justify-between px-6 py-10">
+            <div className="relative z-10 flex min-h-dvh flex-col items-center justify-between px-6 py-10">
               <button
                 onClick={() => setImmersiveMode(false)}
                 className="ios-glass self-end rounded-full px-4 py-2 text-sm text-white/70"
@@ -3797,6 +3976,48 @@ const entry = {
       </AnimatePresence>
 
 
+
+      <AnimatePresence>
+        {shareCardOpen && result && (
+          <motion.div
+            className="fixed inset-0 z-[90] flex items-center justify-center overflow-y-auto bg-black/76 px-5 py-6 backdrop-blur-2xl"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 24, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 16, scale: 0.98 }}
+              transition={{ duration: 0.45, ease: IOS_EASE }}
+              className="w-full max-w-sm"
+            >
+              <div className="relative overflow-hidden rounded-[2.2rem] border border-white/12 bg-[#050607] p-4 shadow-2xl shadow-black/60">
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_10%,var(--aura-a),transparent_34%),radial-gradient(circle_at_90%_70%,var(--aura-c),transparent_36%)] opacity-55 blur-2xl" />
+                <div className="relative">
+                  <p className="text-center text-[10px] font-semibold uppercase tracking-[0.34em] text-white/48">Aura Reading</p>
+                  {(result.uploadedImage || image) && (
+                    <img src={result.uploadedImage || image} alt="Aura share" className="mt-4 aspect-square w-full rounded-[1.7rem] object-cover shadow-2xl shadow-black/50" />
+                  )}
+                  <h2 className="mt-5 text-center text-4xl font-black leading-[0.9] tracking-[-0.08em] text-white drop-shadow-[0_0_22px_rgba(255,255,255,.58)]">{result.aura}</h2>
+                  <div className="mt-4 rounded-[1.4rem] border border-white/10 bg-black/34 p-3 text-center backdrop-blur-xl">
+                    <p className="text-xs uppercase tracking-[0.24em] text-white/35">song match</p>
+                    <p className="mt-1 text-lg font-semibold text-white">{result.song}</p>
+                    <p className="text-sm text-white/50">{result.artist}</p>
+                  </div>
+                  <p className="mt-4 text-center text-[11px] uppercase tracking-[0.25em] text-white/32">made with Aura</p>
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <button onClick={() => setShareCardOpen(false)} className="ios-glass rounded-2xl px-4 py-3 text-sm font-semibold text-white/72">Close</button>
+                <button onClick={downloadAuraShareCard} className="rounded-2xl bg-white px-4 py-3 text-sm font-black text-black">Export</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
 <section className="relative z-10 mx-auto flex min-h-screen w-full max-w-md flex-col px-5 py-6">
         <header className="flex items-center justify-between">
           <div>
@@ -3875,12 +4096,12 @@ const entry = {
                     {(result.uploadedImage || image) && (
                       <img src={result.uploadedImage || image} alt="" aria-hidden="true" className="pointer-events-none absolute inset-0 h-full w-full rounded-[1.8rem] object-cover opacity-30 blur-2xl scale-110" />
                     )}
-                    <div className="flex min-h-[420px] w-full items-center justify-center rounded-[1.8rem] bg-black/55 p-1 sm:min-h-[520px]">
-                      <img src={result.uploadedImage || image} alt="Aura result" data-aura-uploaded-image="true" onError={(event) => { event.currentTarget.style.display = "none"; }} className="h-full min-h-[520px] w-full rounded-[1.45rem] object-cover object-center shadow-2xl shadow-black/45 sm:min-h-[620px]" loading="eager" />
+                    <div className="aura-result-image-square flex w-full items-center justify-center rounded-[1.8rem] bg-black/55 p-1">
+                      <img src={result.uploadedImage || image} alt="Aura result" data-aura-uploaded-image="true" onError={(event) => { event.currentTarget.style.display = "none"; }} className="h-full w-full rounded-[1.45rem] object-cover object-center shadow-2xl shadow-black/45" loading="eager" />
                     </div>
                     <div className="absolute inset-0 rounded-[1.8rem] bg-[radial-gradient(circle_at_24%_18%,rgba(255,255,255,.16),transparent_25%),linear-gradient(to_top,#050607,rgba(0,0,0,.16),transparent)]" />
                     <button onClick={() => setImmersiveMode(true)} className="group absolute bottom-4 left-4 transition duration-300 active:scale-95" aria-label="Open immersive playback mode">
-                      <img src={result.albumArt} onError={(event) => { event.currentTarget.src = generatedAlbumArt(result.song, result.artist, result.colors || colors); }} alt={`${result.song} album art`} layoutId="shared-album-art" className="h-28 w-28 rounded-[1.4rem] border border-white/25 object-cover shadow-[0_0_44px_var(--aura-b),0_20px_50px_rgba(0,0,0,.62)]" />
+                      <img src={result.albumArt} onError={(event) => { event.currentTarget.src = generatedAlbumArt(result.song, result.artist, result.colors || colors); }} alt={`${result.song} album art`} layoutId="shared-album-art" className="h-20 w-20 rounded-[1.2rem] border border-white/25 object-cover shadow-[0_0_44px_var(--aura-b),0_20px_50px_rgba(0,0,0,.62)] sm:h-28 sm:w-28" />
                       <motion.span
                         className="absolute -right-2 -top-2 rounded-full border border-white/15 bg-black/60 px-2.5 py-1 text-[9px] font-semibold uppercase tracking-[0.18em] text-white/78 shadow-xl backdrop-blur-xl"
                         animate={{ opacity: [0.72, 1, 0.72], y: [0, -2, 0] }}
@@ -3957,9 +4178,18 @@ const entry = {
                       Apple Music <ExternalLink size={14} />
                     </a>
                   </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <button onClick={() => setShareCardOpen(true)} className="ios-glass rounded-2xl px-3 py-3 text-xs font-semibold text-white/82 transition duration-500 ease-out hover:scale-[1.015] active:scale-[0.985] sm:text-sm">
+                      View Share Card
+                    </button>
+                    <button onClick={downloadAuraShareCard} className="rounded-2xl bg-white/90 px-3 py-3 text-xs font-black text-black transition duration-500 ease-out hover:scale-[1.015] active:scale-[0.985] sm:text-sm">
+                      Export Card
+                    </button>
+                  </div>
                 </div>
 
-                <div className="mt-3 grid grid-cols-2 gap-3">
+                <div className="aura-mobile-action-grid mt-3 grid grid-cols-2 gap-3">
                   <button onClick={tryAnotherSong} className="ios-glass rounded-3xl px-4 py-4 text-sm font-semibold text-white/78 transition duration-500 ease-out hover:scale-[1.015] active:scale-[0.985]">Similar Track</button>
                   <button onClick={resetApp} className="rounded-3xl bg-[linear-gradient(90deg,var(--aura-a),var(--aura-b),var(--aura-c))] px-4 py-4 text-sm font-bold text-black transition duration-500 ease-out hover:scale-[1.015] active:scale-[0.985]">New photo</button>
                 </div>
